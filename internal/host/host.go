@@ -15,8 +15,10 @@ import (
 	"github.com/creack/pty"
 	"golang.org/x/term"
 
+	"github.com/tylerbroqs/cotty/internal/audit"
 	"github.com/tylerbroqs/cotty/internal/ctl"
 	"github.com/tylerbroqs/cotty/internal/protocol"
+	"github.com/tylerbroqs/cotty/internal/record"
 )
 
 // Options configures a hosted session.
@@ -37,6 +39,13 @@ type Options struct {
 	// Plain disables end-to-end encryption for relayed sessions. Relayed
 	// sessions are encrypted by default so the relay only sees ciphertext.
 	Plain bool
+	// Record, when set, writes the session as an asciicast v2 file at
+	// this path (playable with `cotty replay` or asciinema).
+	Record string
+	// Audit, when set, writes a JSON-lines "who did what" trail at this
+	// path: applied keystrokes by participant, joins/leaves, permission
+	// changes, kicks.
+	Audit string
 }
 
 // transport delivers frames from the host to its guests. Guest input
@@ -89,11 +98,22 @@ func Run(opts Options) error {
 	}
 	defer ptmx.Close()
 
-	// writeInput applies guest keystrokes. Write permission is per guest
-	// now, so gating lives with the guest registry: in-process for local
-	// sessions, on the relay (re-checked coarsely by relayTransport) for
-	// relayed ones.
-	writeInput := func(data []byte) {
+	var aud *audit.Logger
+	if opts.Audit != "" {
+		if aud, err = audit.New(opts.Audit); err != nil {
+			return err
+		}
+		defer aud.Close()
+	}
+	aud.Event("session", "host", "session "+code+" started, shell "+shell)
+	defer aud.Event("session", "host", "session ended")
+
+	// writeInput applies guest keystrokes, attributed by name. Write
+	// permission is per guest, so gating lives with the guest registry:
+	// in-process for local sessions, on the relay (re-checked coarsely by
+	// relayTransport) for relayed ones.
+	writeInput := func(who string, data []byte) {
+		aud.Input(who, data)
 		ptmx.Write(data)
 	}
 
@@ -102,20 +122,38 @@ func Run(opts Options) error {
 		joinURL string
 	)
 	if opts.Relay != "" {
-		tr, joinURL, err = dialRelay(opts.Relay, code, opts.AllowWrite, !opts.Plain, writeInput)
+		tr, joinURL, err = dialRelay(opts.Relay, code, opts.AllowWrite, !opts.Plain, writeInput, aud)
 	} else {
-		tr, joinURL, err = listenLocal(opts.Addr, code, opts.AllowWrite, writeInput)
+		tr, joinURL, err = listenLocal(opts.Addr, code, opts.AllowWrite, writeInput, aud)
 	}
 	if err != nil {
 		return err
 	}
 	defer tr.close()
 
-	ctlSrv, err := ctl.Serve(ctl.SocketPath(code), tr.control)
+	ctlSrv, err := ctl.Serve(ctl.SocketPath(code), func(op, name string) (string, error) {
+		text, cerr := tr.control(op, name)
+		if cerr == nil && op != "list" {
+			aud.Event(op, name, text)
+		}
+		return text, cerr
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cotty: warning: guest management unavailable: %v\n", err)
 	} else {
 		defer ctlSrv.Close()
+	}
+
+	var rec *record.Recorder
+	if opts.Record != "" {
+		cols, rows := 80, 24
+		if ws, serr := pty.GetsizeFull(ptmx); serr == nil && ws.Cols > 0 {
+			cols, rows = int(ws.Cols), int(ws.Rows)
+		}
+		if rec, err = record.New(opts.Record, cols, rows, shell); err != nil {
+			return err
+		}
+		defer rec.Close()
 	}
 
 	mode := "view-only"
@@ -137,6 +175,12 @@ func Run(opts Options) error {
 	if b := browserJoinURL(joinURL); b != "" {
 		fmt.Fprintf(os.Stderr, "cotty: or in a browser: %s\n", b)
 	}
+	if opts.Record != "" {
+		fmt.Fprintf(os.Stderr, "cotty: recording to %s\n", opts.Record)
+	}
+	if opts.Audit != "" {
+		fmt.Fprintf(os.Stderr, "cotty: audit trail at %s\n", opts.Audit)
+	}
 	fmt.Fprintf(os.Stderr, "cotty: manage guests: cotty ctl list | allow NAME | deny NAME | kick NAME\n\n")
 
 	// Attach the local terminal. When stdin isn't a TTY (headless hosting,
@@ -144,7 +188,7 @@ func Run(opts Options) error {
 	stdinFd := int(os.Stdin.Fd())
 	if term.IsTerminal(stdinFd) {
 		if err := pty.InheritSize(os.Stdin, ptmx); err == nil {
-			broadcastSize(tr, ptmx)
+			broadcastSize(tr, rec, ptmx)
 		}
 		winch := make(chan os.Signal, 1)
 		signal.Notify(winch, syscall.SIGWINCH)
@@ -152,7 +196,7 @@ func Run(opts Options) error {
 		go func() {
 			for range winch {
 				if err := pty.InheritSize(os.Stdin, ptmx); err == nil {
-					broadcastSize(tr, ptmx)
+					broadcastSize(tr, rec, ptmx)
 				}
 			}
 		}()
@@ -164,12 +208,14 @@ func Run(opts Options) error {
 		defer term.Restore(stdinFd, oldState)
 	}
 
-	// Local keystrokes go straight to the PTY.
+	// Local keystrokes go straight to the PTY (and into the audit trail,
+	// attributed to the host).
 	go func() {
 		buf := make([]byte, 4096)
 		for {
 			n, err := os.Stdin.Read(buf)
 			if n > 0 {
+				aud.Input("host", buf[:n])
 				if _, werr := ptmx.Write(buf[:n]); werr != nil {
 					return
 				}
@@ -187,6 +233,7 @@ func Run(opts Options) error {
 		n, err := ptmx.Read(buf)
 		if n > 0 {
 			os.Stdout.Write(buf[:n])
+			rec.Output(buf[:n])
 			data := make([]byte, n)
 			copy(data, buf[:n])
 			tr.broadcast(protocol.Message{Type: protocol.TypeOutput, Data: data})
@@ -230,8 +277,9 @@ func browserJoinURL(wsURL string) string {
 	return u.String()
 }
 
-func broadcastSize(tr transport, ptmx *os.File) {
+func broadcastSize(tr transport, rec *record.Recorder, ptmx *os.File) {
 	if ws, err := pty.GetsizeFull(ptmx); err == nil {
+		rec.Resize(int(ws.Cols), int(ws.Rows))
 		tr.broadcast(protocol.Message{
 			Type: protocol.TypeResize,
 			Cols: int(ws.Cols),

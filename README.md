@@ -14,7 +14,7 @@ presence, and eventually per-user cursors and audit trails.
 
 ## Status
 
-Early (v0.5). Working today:
+v1.0. Working today:
 
 - `cotty host` spawns your shell in a PTY and serves it over a websocket
 - `cotty join -name alice` mirrors the session in any terminal, with a
@@ -30,9 +30,13 @@ Early (v0.5). Working today:
 - **Join from a browser**: every relay (and locally hosted session)
   serves an embedded xterm.js client, with E2EE handled in-page by
   WebCrypto — the key stays in the URL fragment, off the wire
+- **Recording & replay**: `-record session.cast` writes asciicast v2
+  (plays back with `cotty replay` or asciinema)
+- **Audit trail**: `-audit trail.jsonl` logs who typed what — every
+  applied keystroke attributed by participant, even through a relay —
+  plus joins, leaves, permission changes, and kicks
+- Live **"who is typing"** presence for everyone in the session
 - Sessions are protected by a random join code
-
-Next up: CRDT multiplayer (v1.0). See the roadmap below.
 
 ## Quick start
 
@@ -72,6 +76,24 @@ cotty ctl kick bob      # disconnect bob
 Starting with `--write` makes new guests writable by default instead.
 Everyone gets join/leave notices, and permission changes are announced to
 the affected guest.
+
+### Recording, replay, and the audit trail
+
+```sh
+# record the session and keep a "who did what" trail
+cotty host -record pairing.cast -audit pairing.jsonl
+
+# play it back later (2x speed, long pauses capped at 2s by default)
+cotty replay -speed 2 pairing.cast
+```
+
+Recordings are standard asciicast v2, so asciinema and its web player
+work too. The audit trail is JSON lines: every keystroke that reached the
+shell, attributed to the participant who typed it (the host included, and
+guests are attributed correctly through a relay), plus joins, leaves,
+permission grants, and kicks. Input that was rejected — a view-only guest
+typing — never reaches the shell and is deliberately absent: the trail
+records what actually ran.
 
 ### Across networks: hosting through a relay
 
@@ -169,8 +191,14 @@ host terminal ── PTY ── ws (outbound) ──► relay ──► guest ws
 - ~~**v0.4 — end-to-end encryption**: relay sees ciphertext only~~ ✅
 - ~~**v0.5 — web client**: join from a browser (xterm.js), proper resize
   handling~~ ✅
-- **v1.0 — true multiplayer**: CRDT-backed shared input with per-user
-  cursors, "who ran what" audit log, session recording & replay
+- ~~**v1.0 — accountability**: "who ran what" audit trail, asciicast
+  recording & replay, live typing presence~~ ✅
+- **v1.1 — shared composer**: a collaboratively edited input line with
+  per-user cursors, composed together before it is submitted to the
+  shell. (A PTY is a byte stream with one authoritative owner, so this
+  needs its own UI layer; with the host as the single sequencer it does
+  not require full CRDT machinery, and pretending otherwise would be
+  marketing.)
 
 ## Development
 

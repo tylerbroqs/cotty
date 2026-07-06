@@ -207,8 +207,8 @@ func (s *Server) handleGuest(w http.ResponseWriter, r *http.Request) {
 		}
 		switch msg.Type {
 		case protocol.TypeInput:
-			sess.guests.HandleInput(g, msg.Data, func(data []byte) {
-				sess.host.Send(protocol.Message{Type: protocol.TypeInput, Data: data})
+			sess.guests.HandleInput(g, msg.Data, func(who string, data []byte) {
+				sess.host.Send(protocol.Message{Type: protocol.TypeInput, Data: data, Name: who})
 			})
 		default:
 			// Ignore unknown frames for forward compatibility.

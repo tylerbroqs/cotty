@@ -8,6 +8,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/tylerbroqs/cotty/internal/audit"
 	"github.com/tylerbroqs/cotty/internal/protocol"
 	"github.com/tylerbroqs/cotty/internal/session"
 	"github.com/tylerbroqs/cotty/internal/webui"
@@ -20,10 +21,11 @@ type localTransport struct {
 	guests     *session.Registry
 	server     *http.Server
 	code       string
-	writeInput func([]byte)
+	writeInput func(who string, data []byte)
+	aud        *audit.Logger
 }
 
-func listenLocal(addr, code string, allowWrite bool, writeInput func([]byte)) (*localTransport, string, error) {
+func listenLocal(addr, code string, allowWrite bool, writeInput func(who string, data []byte), aud *audit.Logger) (*localTransport, string, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, "", fmt.Errorf("listening on %s: %w", addr, err)
@@ -33,6 +35,7 @@ func listenLocal(addr, code string, allowWrite bool, writeInput func([]byte)) (*
 		guests:     session.NewRegistry(allowWrite),
 		code:       code,
 		writeInput: writeInput,
+		aud:        aud,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", t.handleWS)
@@ -77,9 +80,11 @@ func (t *localTransport) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn := wsconn.New(ws)
 
 	g := t.guests.Join(conn, r.URL.Query().Get("name"))
+	t.aud.Event("join", g.Name, "")
 	defer func() {
 		t.guests.Leave(g)
 		conn.CloseNow()
+		t.aud.Event("leave", g.Name, "")
 		notice := fmt.Sprintf("%s left (%d connected)", g.Name, t.guests.Count())
 		fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", notice)
 		t.guests.Broadcast(protocol.Message{Type: protocol.TypeInfo, Text: notice})

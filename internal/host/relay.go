@@ -12,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/tylerbroqs/cotty/internal/audit"
 	"github.com/tylerbroqs/cotty/internal/e2ee"
 	"github.com/tylerbroqs/cotty/internal/protocol"
 	"github.com/tylerbroqs/cotty/internal/wsconn"
@@ -67,7 +68,7 @@ func normalizeRelayURL(raw string) (string, error) {
 	return u.String(), nil
 }
 
-func dialRelay(relay, code string, writable, encrypt bool, writeInput func([]byte)) (*relayTransport, string, error) {
+func dialRelay(relay, code string, writable, encrypt bool, writeInput func(who string, data []byte), aud *audit.Logger) (*relayTransport, string, error) {
 	target, err := normalizeRelayURL(relay)
 	if err != nil {
 		return nil, "", err
@@ -135,7 +136,7 @@ func dialRelay(relay, code string, writable, encrypt bool, writeInput func([]byt
 		granted:      make(map[string]bool),
 		anyWrite:     writable,
 	}
-	go t.readLoop(ctx, writeInput)
+	go t.readLoop(ctx, writeInput, aud)
 	go t.pingLoop(ctx)
 
 	// The key travels in the URL fragment, which clients never send over
@@ -149,7 +150,7 @@ func dialRelay(relay, code string, writable, encrypt bool, writeInput func([]byt
 
 // readLoop handles frames coming down from the relay: guest input,
 // join/leave notices, and control-command results.
-func (t *relayTransport) readLoop(ctx context.Context, writeInput func([]byte)) {
+func (t *relayTransport) readLoop(ctx context.Context, writeInput func(who string, data []byte), aud *audit.Logger) {
 	for {
 		var msg protocol.Message
 		if err := t.conn.Read(ctx, &msg); err != nil {
@@ -173,8 +174,13 @@ func (t *relayTransport) readLoop(ctx context.Context, writeInput func([]byte)) 
 					continue // wrong key or tampering; drop
 				}
 			}
-			writeInput(data)
+			who := msg.Name
+			if who == "" {
+				who = "guest"
+			}
+			writeInput(who, data)
 		case protocol.TypeInfo:
+			aud.Event("info", "", msg.Text)
 			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", msg.Text)
 		case protocol.TypeControlResult:
 			t.pendingMu.Lock()

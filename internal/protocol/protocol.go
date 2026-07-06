@@ -40,6 +40,9 @@ const (
 	TypeControlResult MsgType = "control-result"
 	// TypeWritable tells a guest its write permission changed.
 	TypeWritable MsgType = "writable"
+	// TypeActivity announces that the guest in Name is typing; sent to
+	// other participants, throttled per guest.
+	TypeActivity MsgType = "activity"
 )
 
 // Message is a single frame. Data is base64-encoded by encoding/json.
@@ -56,7 +59,9 @@ type Message struct {
 	Writable bool `json:"writable,omitempty"`
 	// Op is the command on TypeControl frames: list, allow, deny, kick.
 	Op string `json:"op,omitempty"`
-	// Name is the guest a TypeControl frame targets.
+	// Name is the guest a TypeControl frame targets, the typist on
+	// TypeActivity frames, and the attributed sender on TypeInput frames
+	// forwarded by a relay.
 	Name string `json:"name,omitempty"`
 	// Ok reports success on TypeControlResult frames.
 	Ok bool `json:"ok,omitempty"`

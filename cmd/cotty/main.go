@@ -6,14 +6,16 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/tylerbroqs/cotty/internal/client"
 	"github.com/tylerbroqs/cotty/internal/ctl"
 	"github.com/tylerbroqs/cotty/internal/host"
 	"github.com/tylerbroqs/cotty/internal/relay"
+	"github.com/tylerbroqs/cotty/internal/replay"
 )
 
-const version = "0.5.0-dev"
+const version = "1.0.0-dev"
 
 const usage = `cotty — the multiplayer terminal
 
@@ -22,6 +24,7 @@ Usage:
   cotty join [flags] <url>     Join a hosted session
   cotty ctl [flags] <command>  Manage the guests of a running session
   cotty relay [flags]          Run a relay server for NAT-friendly sessions
+  cotty replay [flags] <file>  Play back a recorded session
   cotty version                Print version
 
 Host flags:
@@ -36,6 +39,15 @@ Host flags:
                   (relayed sessions are encrypted by default; the join
                   URL's #k= part carries the key and never reaches the
                   relay)
+  -record string  Record the session as an asciicast v2 file (playable
+                  with 'cotty replay' or asciinema)
+  -audit string   Write a JSON-lines audit trail: applied keystrokes by
+                  participant, joins/leaves, permission changes, kicks
+
+Replay flags:
+  -speed float      Playback speed multiplier (default 1)
+  -max-idle duration  Cap pauses between events, e.g. 2s (default 2s;
+                      0 keeps original timing)
 
 Join flags:
   -name string    Display name other participants see (default $USER)
@@ -75,6 +87,8 @@ func main() {
 		write := fs.Bool("write", false, "allow guests to type")
 		code := fs.String("code", "", "fixed session code")
 		plain := fs.Bool("plain", false, "disable end-to-end encryption for relayed sessions")
+		recordPath := fs.String("record", "", "record the session as an asciicast v2 file")
+		auditPath := fs.String("audit", "", "write a JSON-lines audit trail")
 		fs.Parse(os.Args[2:])
 		err := host.Run(host.Options{
 			Addr:       *addr,
@@ -83,6 +97,8 @@ func main() {
 			AllowWrite: *write,
 			Code:       *code,
 			Plain:      *plain,
+			Record:     *recordPath,
+			Audit:      *auditPath,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
@@ -131,6 +147,19 @@ func main() {
 		publicURL := fs.String("public-url", "", "base URL guests use to reach this relay")
 		fs.Parse(os.Args[2:])
 		if err := relay.Run(relay.Options{Addr: *addr, PublicURL: *publicURL}); err != nil {
+			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
+			os.Exit(1)
+		}
+	case "replay":
+		fs := flag.NewFlagSet("replay", flag.ExitOnError)
+		speed := fs.Float64("speed", 1, "playback speed multiplier")
+		maxIdle := fs.Duration("max-idle", 2*time.Second, "cap pauses between events (0 keeps original timing)")
+		fs.Parse(os.Args[2:])
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "usage: cotty replay [-speed N] [-max-idle DUR] <file.cast>")
+			os.Exit(2)
+		}
+		if err := replay.Run(fs.Arg(0), replay.Options{Speed: *speed, MaxIdle: *maxIdle}); err != nil {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
 			os.Exit(1)
 		}

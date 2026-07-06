@@ -22,9 +22,13 @@ type Guest struct {
 	Writable bool
 	JoinedAt time.Time
 
-	conn     *wsconn.Conn
-	warnedRO bool
+	conn         *wsconn.Conn
+	warnedRO     bool
+	lastActivity time.Time
 }
+
+// activityInterval throttles "is typing" announcements per guest.
+const activityInterval = 2 * time.Second
 
 // Registry is the guest list of one session. All methods are safe for
 // concurrent use.
@@ -139,18 +143,29 @@ func (r *Registry) CloseAll() {
 }
 
 // HandleInput applies one guest's keystrokes if that guest may write,
-// warning it once otherwise.
-func (r *Registry) HandleInput(g *Guest, data []byte, write func([]byte)) {
+// warning it once otherwise. Applied input is attributed to the guest by
+// name, and other participants get a throttled "is typing" announcement.
+func (r *Registry) HandleInput(g *Guest, data []byte, write func(who string, data []byte)) {
 	r.mu.Lock()
 	writable := g.Writable
 	warned := g.warnedRO
 	if !writable {
 		g.warnedRO = true
 	}
+	announce := false
+	if writable {
+		if now := time.Now(); now.Sub(g.lastActivity) > activityInterval {
+			g.lastActivity = now
+			announce = true
+		}
+	}
 	r.mu.Unlock()
 
 	if writable {
-		write(data)
+		write(g.Name, data)
+		if announce {
+			r.BroadcastExcept(g, protocol.Message{Type: protocol.TypeActivity, Name: g.Name})
+		}
 		return
 	}
 	if !warned {

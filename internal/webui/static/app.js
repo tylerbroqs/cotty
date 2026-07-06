@@ -6,9 +6,17 @@
   'use strict';
 
   const statusEl = document.getElementById('status');
+  const activityEl = document.getElementById('activity');
   const joinEl = document.getElementById('join');
   const termEl = document.getElementById('term');
   const toastEl = document.getElementById('toast');
+
+  let activityTimer = null;
+  function showActivity(name) {
+    activityEl.textContent = name + ' is typing…';
+    clearTimeout(activityTimer);
+    activityTimer = setTimeout(() => { activityEl.textContent = ''; }, 2500);
+  }
 
   function setStatus(text) { statusEl.textContent = text; }
 
@@ -160,6 +168,9 @@
           break;
         case 'writable':
           toast('your connection is now ' + (msg.writable ? 'read-write' : 'view-only'));
+          break;
+        case 'activity':
+          if (msg.name) showActivity(msg.name);
           break;
       }
     }
