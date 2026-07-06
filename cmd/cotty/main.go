@@ -40,6 +40,7 @@ func main() {
 
 	switch os.Args[1] {
 	case "host":
+		printBanner(os.Stderr)
 		fs := flag.NewFlagSet("host", flag.ExitOnError)
 		addr := fs.String("addr", ":7373", "listen address for guests")
 		shell := fs.String("shell", "", "shell to run (default $SHELL)")
@@ -68,6 +69,7 @@ func main() {
 	case "version":
 		fmt.Println("cotty " + version)
 	case "-h", "--help", "help":
+		printBanner(os.Stderr)
 		fmt.Print(usage)
 	default:
 		fmt.Fprintf(os.Stderr, "cotty: unknown command %q\n\n%s", os.Args[1], usage)

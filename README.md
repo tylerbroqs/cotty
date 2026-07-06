@@ -1,5 +1,15 @@
 # Cotty
 
+```
+ ██████╗ ██████╗ ████████╗████████╗██╗   ██╗
+██╔════╝██╔═══██╗╚══██╔══╝╚══██╔══╝╚██╗ ██╔╝
+██║     ██║   ██║   ██║      ██║    ╚████╔╝
+██║     ██║   ██║   ██║      ██║     ╚██╔╝
+╚██████╗╚██████╔╝   ██║      ██║      ██║
+ ╚═════╝ ╚═════╝    ╚═╝      ╚═╝      ╚═╝
+          t h e   m u l t i p l a y e r   t e r m i n a l
+```
+
 **The multiplayer terminal.** Host your shell, let teammates join over the
 network, watch together — and, when you allow it, type together.
 
