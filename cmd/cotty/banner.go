@@ -7,44 +7,44 @@ import (
 	"golang.org/x/term"
 )
 
-// The wordmark: "COTT" and "Y" are kept separate so the final letter can
-// carry the accent color, like the last letter of the logo.
-var bannerLeft = []string{
-	" ██████╗ ██████╗ ████████╗████████╗",
-	"██╔════╝██╔═══██╗╚══██╔══╝╚══██╔══╝",
-	"██║     ██║   ██║   ██║      ██║   ",
-	"██║     ██║   ██║   ██║      ██║   ",
-	"╚██████╗╚██████╔╝   ██║      ██║   ",
-	" ╚═════╝ ╚═════╝    ╚═╝      ╚═╝   ",
+// The wordmark: solid full blocks only — no box-drawing outlines — so it
+// renders as one unbroken shape in any terminal font. Rows shade from
+// light to deep orange, top to bottom, like the logo.
+var banner = []string{
+	" ██████   ██████  ████████ ████████ ██    ██",
+	"██       ██    ██    ██       ██     ██  ██ ",
+	"██       ██    ██    ██       ██      ████  ",
+	"██       ██    ██    ██       ██       ██   ",
+	"██       ██    ██    ██       ██       ██   ",
+	" ██████   ██████     ██       ██       ██   ",
 }
 
-var bannerRight = []string{
-	"██╗   ██╗",
-	"╚██╗ ██╔╝",
-	" ╚████╔╝ ",
-	"  ╚██╔╝  ",
-	"   ██║   ",
-	"   ╚═╝   ",
+// bannerShades maps each banner row to a 256-color orange, light to deep.
+var bannerShades = []string{
+	"\x1b[1;38;5;214m",
+	"\x1b[1;38;5;214m",
+	"\x1b[1;38;5;208m",
+	"\x1b[1;38;5;208m",
+	"\x1b[1;38;5;202m",
+	"\x1b[1;38;5;202m",
 }
 
 const (
-	ansiReset  = "\x1b[0m"
-	ansiWhite  = "\x1b[1;97m"
-	ansiAccent = "\x1b[1;95m"
-	ansiDim    = "\x1b[2m"
+	ansiReset = "\x1b[0m"
+	ansiDim   = "\x1b[2m"
 )
 
 // printBanner writes the wordmark to w, colored when w is a terminal.
 func printBanner(w *os.File) {
 	color := term.IsTerminal(int(w.Fd()))
-	for i := range bannerLeft {
+	for i, line := range banner {
 		if color {
-			fmt.Fprintf(w, "%s%s%s%s%s\n", ansiWhite, bannerLeft[i], ansiAccent, bannerRight[i], ansiReset)
+			fmt.Fprintf(w, "%s%s%s\n", bannerShades[i], line, ansiReset)
 		} else {
-			fmt.Fprintf(w, "%s%s\n", bannerLeft[i], bannerRight[i])
+			fmt.Fprintln(w, line)
 		}
 	}
-	tagline := "          t h e   m u l t i p l a y e r   t e r m i n a l"
+	tagline := "t h e   m u l t i p l a y e r   t e r m i n a l"
 	if color {
 		fmt.Fprintf(w, "%s%s%s\n\n", ansiDim, tagline, ansiReset)
 	} else {

@@ -1,59 +1,87 @@
+<div align="center">
+
+<img src="assets/wordmark.svg" alt="COTTY — the multiplayer terminal" width="640">
+
 # Cotty
 
-<p align="center">
-  <img src="assets/wordmark.svg" alt="COTTY — the multiplayer terminal" width="640">
-</p>
+**The multiplayer terminal.** Your shell, your guests, your rules.
 
-**The multiplayer terminal.** Host your shell, let teammates join over the
-network, watch together — and, when you allow it, type together.
+[![Go 1.24+](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)](go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-ff8700)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-ff8700)](#install)
+[![E2EE](https://img.shields.io/badge/E2EE-AES--256--GCM-ffaf00)](#end-to-end-encryption)
+[![Recording](https://img.shields.io/badge/Recording-asciicast%20v2-ffaf00)](#recording-replay-and-the-audit-trail)
 
-Cotty (*collaborative + tty*) targets the gap between screen-sharing hacks
-(`tmate`, `sshx`, "look at my Zoom") and what real-time collaboration should
-feel like in a terminal: first-class sessions with per-guest permissions,
-presence, and eventually per-user cursors and audit trails.
+[Install](#install) ·
+[Quick start](#quick-start) ·
+[Features](#features) ·
+[Security](#end-to-end-encryption) ·
+[How it works](#how-it-works) ·
+[Contributing](#contributing)
 
-## Status
+</div>
 
-v1.0. Working today:
+---
 
-- `cotty host` spawns your shell in a PTY and serves it over a websocket
-- `cotty join -name alice` mirrors the session in any terminal, with a
-  display name everyone sees in join/leave notices
-- `cotty relay` + `cotty host --relay <server>` share sessions across
-  networks without port forwarding — the host dials out, so NAT is not a
-  problem
-- Guests are **view-only by default**, with per-guest grants at runtime:
-  `cotty ctl allow alice`, `cotty ctl deny alice`, `cotty ctl kick bob`,
-  `cotty ctl list` — from any terminal on the host machine
-- Relayed sessions are **end-to-end encrypted by default** — the relay
-  forwards ciphertext it cannot read
-- **Join from a browser**: every relay (and locally hosted session)
-  serves an embedded xterm.js client, with E2EE handled in-page by
-  WebCrypto — the key stays in the URL fragment, off the wire
-- **Recording & replay**: `-record session.cast` writes asciicast v2
-  (plays back with `cotty replay` or asciinema)
-- **Audit trail**: `-audit trail.jsonl` logs who typed what — every
-  applied keystroke attributed by participant, even through a relay —
-  plus joins, leaves, permission changes, and kicks
-- Live **"who is typing"** presence for everyone in the session
-- Sessions are protected by a random join code
+Cotty (*collaborative + tty*) is a multiplayer terminal: host your shell,
+let teammates join over the network, watch together — and, when you allow
+it, type together. It targets the gap between screen-sharing hacks
+(`tmate`, `sshx`, "look at my Zoom") and what real-time collaboration
+should feel like in a terminal: first-class sessions with per-guest
+permissions, presence, accountability, and end-to-end encryption.
+
+## Features
+
+- **Host anywhere** — `cotty host` spawns your shell in a PTY and serves
+  it over a websocket; your local terminal stays attached as usual
+- **Join from any terminal** — `cotty join -name alice` mirrors the
+  session, with a display name everyone sees
+- **Join from a browser** — every relay and locally hosted session serves
+  an embedded xterm.js client; no install needed for guests
+- **NAT-friendly relay** — `cotty relay` + `cotty host --relay <server>`:
+  the host dials *out*, so no port forwarding on either side
+- **Per-guest permissions** — guests are view-only by default; grant,
+  revoke, and kick live: `cotty ctl allow alice`, `deny`, `kick`, `list`
+- **End-to-end encrypted by default** — relayed sessions use
+  AES-256-GCM; the relay forwards ciphertext it cannot read
+- **Recording & replay** — `-record session.cast` writes asciicast v2,
+  playable with `cotty replay` or asciinema
+- **Audit trail** — `-audit trail.jsonl` logs who typed what: every
+  applied keystroke attributed by participant, plus joins, leaves,
+  permission changes, and kicks
+- **Live presence** — everyone sees who joins, leaves, and is typing
+- **Session codes** — every session is protected by a random join code
+
+## Install
+
+```sh
+go install github.com/tylerbroqs/cotty/cmd/cotty@latest
+```
+
+Or build from source:
+
+```sh
+git clone https://github.com/tylerbroqs/cotty
+cd cotty
+go build -o cotty ./cmd/cotty
+```
+
+Requires Go 1.24+. Linux and macOS; Windows guests should work (`join`
+uses no PTY), Windows hosting is untracked for now.
 
 ## Quick start
 
 ```sh
-# Build
-go build -o cotty ./cmd/cotty
-
 # On the host machine
-./cotty host            # view-only guests
-./cotty host --write    # guests can type too
+cotty host            # view-only guests
+cotty host --write    # guests can type too
 
 # Cotty prints something like:
 #   cotty: session code XJ4K2P
 #   cotty: guests join with: cotty join ws://<this-host>:7373/ws?code=XJ4K2P
 
 # On a guest machine
-./cotty join -name alice "ws://192.168.1.10:7373/ws?code=XJ4K2P"
+cotty join -name alice "ws://192.168.1.10:7373/ws?code=XJ4K2P"
 ```
 
 Guests press `Ctrl-]` to leave. The session ends when the host's shell
@@ -182,33 +210,19 @@ host terminal ── PTY ── ws (outbound) ──► relay ──► guest ws
                                             │ ────► guest ws
 ```
 
-## Roadmap
+## Contributing
 
-- ~~**v0.2 — relay**: `cotty host --relay <server>` so sessions work across
-  NATs without port forwarding; short shareable session URLs~~ ✅
-- ~~**v0.3 — identity & permissions**: named guests, per-guest read/write
-  grants, join/leave presence, host can kick~~ ✅
-- ~~**v0.4 — end-to-end encryption**: relay sees ciphertext only~~ ✅
-- ~~**v0.5 — web client**: join from a browser (xterm.js), proper resize
-  handling~~ ✅
-- ~~**v1.0 — accountability**: "who ran what" audit trail, asciicast
-  recording & replay, live typing presence~~ ✅
-- **v1.1 — shared composer**: a collaboratively edited input line with
-  per-user cursors, composed together before it is submitted to the
-  shell. (A PTY is a byte stream with one authoritative owner, so this
-  needs its own UI layer; with the host as the single sequencer it does
-  not require full CRDT machinery, and pretending otherwise would be
-  marketing.)
-
-## Development
+Issues and pull requests are welcome. Keep changes small and focused, and
+make sure the tree stays clean before sending a PR:
 
 ```sh
 go vet ./...
 go build ./...
 ```
 
-Requires Go 1.24+. Linux and macOS; Windows guests should work (`join`
-uses no PTY), Windows hosting is untracked for now.
+The codebase is deliberately compact — a handful of small packages under
+[`internal/`](internal/), no framework, minimal dependencies. Please keep
+it that way.
 
 ## License
 
