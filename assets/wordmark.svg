@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" width="640" height="200">
+  <rect width="640" height="200" rx="12" fill="#101418"/>
+  <g font-family="'Courier New',Menlo,Consolas,monospace" font-size="20" font-weight="bold" letter-spacing="0">
+    <text x="48" y="46"  xml:space="preserve"><tspan fill="#f0f6fc"> ██████╗ ██████╗ ████████╗████████╗</tspan><tspan fill="#ff4fd8">██╗   ██╗</tspan></text>
+    <text x="48" y="68"  xml:space="preserve"><tspan fill="#f0f6fc">██╔════╝██╔═══██╗╚══██╔══╝╚══██╔══╝</tspan><tspan fill="#ff4fd8">╚██╗ ██╔╝</tspan></text>
+    <text x="48" y="90"  xml:space="preserve"><tspan fill="#f0f6fc">██║     ██║   ██║   ██║      ██║   </tspan><tspan fill="#ff4fd8"> ╚████╔╝ </tspan></text>
+    <text x="48" y="112" xml:space="preserve"><tspan fill="#f0f6fc">██║     ██║   ██║   ██║      ██║   </tspan><tspan fill="#ff4fd8">  ╚██╔╝  </tspan></text>
+    <text x="48" y="134" xml:space="preserve"><tspan fill="#f0f6fc">╚██████╗╚██████╔╝   ██║      ██║   </tspan><tspan fill="#ff4fd8">   ██║   </tspan></text>
+    <text x="48" y="156" xml:space="preserve"><tspan fill="#f0f6fc"> ╚═════╝ ╚═════╝    ╚═╝      ╚═╝   </tspan><tspan fill="#ff4fd8">   ╚═╝   </tspan></text>
+  </g>
+  <text x="320" y="184" font-family="'Courier New',Menlo,Consolas,monospace" font-size="13" fill="#8b949e" text-anchor="middle" letter-spacing="3">the multiplayer terminal</text>
+</svg>
