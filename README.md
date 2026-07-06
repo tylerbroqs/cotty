@@ -14,19 +14,20 @@ presence, and eventually per-user cursors and audit trails.
 
 ## Status
 
-Early (v0.2). Working today:
+Early (v0.3). Working today:
 
 - `cotty host` spawns your shell in a PTY and serves it over a websocket
-- `cotty join` mirrors the session in any terminal
+- `cotty join -name alice` mirrors the session in any terminal, with a
+  display name everyone sees in join/leave notices
 - `cotty relay` + `cotty host --relay <server>` share sessions across
   networks without port forwarding — the host dials out, so NAT is not a
   problem
-- Guests are **view-only by default**; the host opts into shared typing
-  with `--write`
+- Guests are **view-only by default**, with per-guest grants at runtime:
+  `cotty ctl allow alice`, `cotty ctl deny alice`, `cotty ctl kick bob`,
+  `cotty ctl list` — from any terminal on the host machine
 - Sessions are protected by a random join code
 
-Not yet built: per-guest identity, encryption, web client. See the
-roadmap below.
+Not yet built: encryption, web client. See the roadmap below.
 
 ## Quick start
 
@@ -43,11 +44,29 @@ go build -o cotty ./cmd/cotty
 #   cotty: guests join with: cotty join ws://<this-host>:7373/ws?code=XJ4K2P
 
 # On a guest machine
-./cotty join "ws://192.168.1.10:7373/ws?code=XJ4K2P"
+./cotty join -name alice "ws://192.168.1.10:7373/ws?code=XJ4K2P"
 ```
 
 Guests press `Ctrl-]` to leave. The session ends when the host's shell
 exits.
+
+### Managing guests
+
+Guests join view-only under the name they picked (`-name`, defaulting to
+`$USER`). The host manages them live from any other terminal on the host
+machine — or straight from inside the hosted shell, since every session
+exports `$COTTY_SESSION`:
+
+```sh
+cotty ctl list          # who's here, and who can type
+cotty ctl allow alice   # let alice type
+cotty ctl deny alice    # back to view-only
+cotty ctl kick bob      # disconnect bob
+```
+
+Starting with `--write` makes new guests writable by default instead.
+Everyone gets join/leave notices, and permission changes are announced to
+the affected guest.
 
 ### Across networks: hosting through a relay
 
@@ -103,8 +122,8 @@ host terminal ── PTY ── ws (outbound) ──► relay ──► guest ws
 
 - ~~**v0.2 — relay**: `cotty host --relay <server>` so sessions work across
   NATs without port forwarding; short shareable session URLs~~ ✅
-- **v0.3 — identity & permissions**: named guests, per-guest read/write
-  grants, join/leave presence, host can kick
+- ~~**v0.3 — identity & permissions**: named guests, per-guest read/write
+  grants, join/leave presence, host can kick~~ ✅
 - **v0.4 — end-to-end encryption**: relay sees ciphertext only
 - **v0.5 — web client**: join from a browser (xterm.js), proper resize
   handling

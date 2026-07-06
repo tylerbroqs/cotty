@@ -2,8 +2,10 @@
 // lets hosts behind NAT share sessions. Hosts dial the /host endpoint and
 // register a session code; guests join via /ws?code=... exactly like they
 // would join a locally hosted session, so `cotty join` needs no changes.
+// The relay owns each relayed session's guest registry and executes the
+// host's control commands (list/allow/deny/kick) against it.
 //
-// The relay only forwards frames — in v0.2 it can read them. End-to-end
+// The relay only forwards frames — but it can read them. End-to-end
 // encryption (relay sees ciphertext only) is on the roadmap for v0.4.
 package relay
 
@@ -20,8 +22,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/tylerbroqs/cotty/internal/hub"
 	"github.com/tylerbroqs/cotty/internal/protocol"
+	"github.com/tylerbroqs/cotty/internal/session"
 	"github.com/tylerbroqs/cotty/internal/wsconn"
 )
 
@@ -35,19 +37,18 @@ type Options struct {
 	PublicURL string
 }
 
-// session is one live hosted session on the relay.
-type session struct {
-	code     string
-	writable bool
-	host     *wsconn.Conn
-	guests   *hub.Hub
+// relaySession is one live hosted session on the relay.
+type relaySession struct {
+	code   string
+	host   *wsconn.Conn
+	guests *session.Registry
 }
 
 // Server is a running relay.
 type Server struct {
 	opts     Options
 	mu       sync.Mutex
-	sessions map[string]*session
+	sessions map[string]*relaySession
 }
 
 var codeRE = regexp.MustCompile(`^[A-Z0-9]{4,16}$`)
@@ -56,7 +57,7 @@ const registerTimeout = 15 * time.Second
 
 // Run starts the relay and blocks.
 func Run(opts Options) error {
-	s := &Server{opts: opts, sessions: make(map[string]*session)}
+	s := &Server{opts: opts, sessions: make(map[string]*relaySession)}
 
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
@@ -90,8 +91,8 @@ func (s *Server) joinURL(r *http.Request, code string) string {
 	return fmt.Sprintf("%s/ws?code=%s", base, code)
 }
 
-// handleHost registers a hosted session and forwards its frames to guests
-// until the host disconnects.
+// handleHost registers a hosted session, forwards its frames to guests,
+// and executes its control commands until the host disconnects.
 func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 	ws, err := websocket.Accept(w, r, nil)
 	if err != nil {
@@ -115,7 +116,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := &session{code: code, writable: reg.Writable, host: conn, guests: hub.New()}
+	sess := &relaySession{code: code, host: conn, guests: session.NewRegistry(reg.Writable)}
 	s.mu.Lock()
 	if _, exists := s.sessions[code]; exists {
 		s.mu.Unlock()
@@ -153,6 +154,13 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		switch msg.Type {
 		case protocol.TypeOutput, protocol.TypeResize, protocol.TypeInfo:
 			sess.guests.Broadcast(msg)
+		case protocol.TypeControl:
+			text, err := sess.guests.Apply(msg.Op, msg.Name)
+			result := protocol.Message{Type: protocol.TypeControlResult, Ok: err == nil, Text: text}
+			if err != nil {
+				result.Text = err.Error()
+			}
+			conn.Send(result)
 		}
 	}
 }
@@ -173,46 +181,37 @@ func (s *Server) handleGuest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ws.SetReadLimit(1 << 20)
-	g := wsconn.New(ws)
+	conn := wsconn.New(ws)
 
-	sess.guests.Add(g)
+	g := sess.guests.Join(conn, r.URL.Query().Get("name"))
 	defer func() {
-		sess.guests.Remove(g)
-		g.CloseNow()
-		sess.host.Send(protocol.Message{
-			Type: protocol.TypeInfo,
-			Text: fmt.Sprintf("guest left (%d connected)", sess.guests.Count()),
-		})
+		sess.guests.Leave(g)
+		conn.CloseNow()
+		notice := fmt.Sprintf("%s left (%d connected)", g.Name, sess.guests.Count())
+		sess.host.Send(protocol.Message{Type: protocol.TypeInfo, Text: notice})
+		sess.guests.Broadcast(protocol.Message{Type: protocol.TypeInfo, Text: notice})
 	}()
 
-	g.Send(protocol.Message{
+	conn.Send(protocol.Message{
 		Type:     protocol.TypeHello,
 		Version:  protocol.Version,
-		Text:     "welcome to cotty session " + code,
-		Writable: sess.writable,
+		Text:     fmt.Sprintf("welcome to cotty session %s — you are %s", code, g.Name),
+		Writable: g.Writable,
 	})
-	sess.host.Send(protocol.Message{
-		Type: protocol.TypeInfo,
-		Text: fmt.Sprintf("guest joined (%d connected)", sess.guests.Count()),
-	})
+	notice := fmt.Sprintf("%s joined (%d connected)", g.Name, sess.guests.Count())
+	sess.host.Send(protocol.Message{Type: protocol.TypeInfo, Text: notice})
+	sess.guests.BroadcastExcept(g, protocol.Message{Type: protocol.TypeInfo, Text: notice})
 
-	warnedReadOnly := false
 	for {
 		var msg protocol.Message
-		if err := g.Read(r.Context(), &msg); err != nil {
+		if err := conn.Read(r.Context(), &msg); err != nil {
 			return
 		}
 		switch msg.Type {
 		case protocol.TypeInput:
-			if sess.writable {
-				sess.host.Send(msg)
-			} else if !warnedReadOnly {
-				warnedReadOnly = true
-				g.Send(protocol.Message{
-					Type: protocol.TypeInfo,
-					Text: "this session is view-only; the host started it without --write",
-				})
-			}
+			sess.guests.HandleInput(g, msg.Data, func(data []byte) {
+				sess.host.Send(protocol.Message{Type: protocol.TypeInput, Data: data})
+			})
 		default:
 			// Ignore unknown frames for forward compatibility.
 		}

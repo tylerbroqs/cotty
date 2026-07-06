@@ -8,27 +8,41 @@ import (
 	"os"
 
 	"github.com/tylerbroqs/cotty/internal/client"
+	"github.com/tylerbroqs/cotty/internal/ctl"
 	"github.com/tylerbroqs/cotty/internal/host"
 	"github.com/tylerbroqs/cotty/internal/relay"
 )
 
-const version = "0.2.0-dev"
+const version = "0.3.0-dev"
 
 const usage = `cotty — the multiplayer terminal
 
 Usage:
-  cotty host [flags]      Share your shell with guests
-  cotty join <url>        Join a hosted session
-  cotty relay [flags]     Run a relay server for NAT-friendly sessions
-  cotty version           Print version
+  cotty host [flags]           Share your shell with guests
+  cotty join [flags] <url>     Join a hosted session
+  cotty ctl [flags] <command>  Manage the guests of a running session
+  cotty relay [flags]          Run a relay server for NAT-friendly sessions
+  cotty version                Print version
 
 Host flags:
   -addr string    Listen address for guests (default ":7373")
   -relay string   Host through a relay instead of listening locally,
                   e.g. -relay relay.example.com:7374 (works behind NAT)
   -shell string   Shell to run (default $SHELL, then /bin/sh)
-  -write          Allow guests to type into the session (default view-only)
+  -write          Let guests type by default (otherwise view-only until
+                  granted with 'cotty ctl allow NAME')
   -code string    Use a fixed session code instead of a random one
+
+Join flags:
+  -name string    Display name other participants see (default $USER)
+
+Ctl commands (run on the host machine, e.g. from another terminal):
+  cotty ctl list          Show connected guests and their permissions
+  cotty ctl allow NAME    Let a guest type into the session
+  cotty ctl deny NAME     Make a guest view-only again
+  cotty ctl kick NAME     Disconnect a guest
+  -code string            Target a specific session (default: $COTTY_SESSION,
+                          then the only active session)
 
 Relay flags:
   -addr string        Listen address (default ":7374")
@@ -69,11 +83,39 @@ func main() {
 			os.Exit(1)
 		}
 	case "join":
-		if len(os.Args) != 3 {
-			fmt.Fprintln(os.Stderr, "usage: cotty join <url>")
+		fs := flag.NewFlagSet("join", flag.ExitOnError)
+		name := fs.String("name", "", "display name other participants see")
+		fs.Parse(os.Args[2:])
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "usage: cotty join [-name NAME] <url>")
 			os.Exit(2)
 		}
-		if err := client.Run(os.Args[2]); err != nil {
+		if err := client.Run(fs.Arg(0), *name); err != nil {
+			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
+			os.Exit(1)
+		}
+	case "ctl":
+		fs := flag.NewFlagSet("ctl", flag.ExitOnError)
+		code := fs.String("code", "", "session code to target")
+		fs.Parse(os.Args[2:])
+		op := fs.Arg(0)
+		name := fs.Arg(1)
+		switch {
+		case op == "list" && fs.NArg() == 1:
+		case (op == "allow" || op == "deny" || op == "kick") && fs.NArg() == 2:
+		default:
+			fmt.Fprintln(os.Stderr, "usage: cotty ctl [-code CODE] list | allow NAME | deny NAME | kick NAME")
+			os.Exit(2)
+		}
+		path, err := ctl.Discover(*code)
+		if err == nil {
+			var text string
+			text, err = ctl.Call(path, op, name)
+			if err == nil {
+				fmt.Println(text)
+			}
+		}
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
 			os.Exit(1)
 		}

@@ -14,6 +14,7 @@ import (
 	"github.com/creack/pty"
 	"golang.org/x/term"
 
+	"github.com/tylerbroqs/cotty/internal/ctl"
 	"github.com/tylerbroqs/cotty/internal/protocol"
 )
 
@@ -35,9 +36,12 @@ type Options struct {
 }
 
 // transport delivers frames from the host to its guests. Guest input
-// flows back through the writeInput callback each transport is built with.
+// flows back through the writeInput callback each transport is built
+// with, and control executes guest-management commands (list, allow,
+// deny, kick) wherever the guest registry lives.
 type transport interface {
 	broadcast(protocol.Message)
+	control(op, name string) (string, error)
 	close()
 }
 
@@ -81,12 +85,12 @@ func Run(opts Options) error {
 	}
 	defer ptmx.Close()
 
-	// writeInput applies guest keystrokes. The AllowWrite check lives here
-	// so the host enforces it even if the far side (a relay) misbehaves.
+	// writeInput applies guest keystrokes. Write permission is per guest
+	// now, so gating lives with the guest registry: in-process for local
+	// sessions, on the relay (re-checked coarsely by relayTransport) for
+	// relayed ones.
 	writeInput := func(data []byte) {
-		if opts.AllowWrite {
-			ptmx.Write(data)
-		}
+		ptmx.Write(data)
 	}
 
 	var (
@@ -103,6 +107,13 @@ func Run(opts Options) error {
 	}
 	defer tr.close()
 
+	ctlSrv, err := ctl.Serve(ctl.SocketPath(code), tr.control)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cotty: warning: guest management unavailable: %v\n", err)
+	} else {
+		defer ctlSrv.Close()
+	}
+
 	mode := "view-only"
 	if opts.AllowWrite {
 		mode = "read-write"
@@ -111,9 +122,10 @@ func Run(opts Options) error {
 	if opts.Relay != "" {
 		where = "via relay " + opts.Relay
 	}
-	fmt.Fprintf(os.Stderr, "cotty: hosting %s %s (guests are %s)\n", shell, where, mode)
+	fmt.Fprintf(os.Stderr, "cotty: hosting %s %s (guests are %s by default)\n", shell, where, mode)
 	fmt.Fprintf(os.Stderr, "cotty: session code %s\n", code)
-	fmt.Fprintf(os.Stderr, "cotty: guests join with: cotty join %q\n\n", joinURL)
+	fmt.Fprintf(os.Stderr, "cotty: guests join with: cotty join %q\n", joinURL)
+	fmt.Fprintf(os.Stderr, "cotty: manage guests: cotty ctl list | allow NAME | deny NAME | kick NAME\n\n")
 
 	// Attach the local terminal. When stdin isn't a TTY (headless hosting,
 	// tests, CI) skip raw mode and size handling instead of failing.

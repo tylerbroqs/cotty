@@ -6,6 +6,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 
 	"github.com/coder/websocket"
@@ -18,15 +19,35 @@ import (
 // escapeKey disconnects the guest locally (Ctrl-], like telnet).
 const escapeKey = 0x1d
 
-// Run joins the session at url (ws://host:port/ws?code=...) and blocks
-// until the session ends or the user presses the escape key.
-func Run(url string) error {
+// withName adds the guest's display name to the join URL. An empty name
+// falls back to $USER, then to the server-side default.
+func withName(rawURL, name string) string {
+	if name == "" {
+		name = os.Getenv("USER")
+	}
+	if name == "" {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	q := u.Query()
+	q.Set("name", name)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// Run joins the session at rawURL (ws://host:port/ws?code=...) as name and
+// blocks until the session ends or the user presses the escape key.
+func Run(rawURL, name string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ws, _, err := websocket.Dial(ctx, url, nil)
+	target := withName(rawURL, name)
+	ws, _, err := websocket.Dial(ctx, target, nil)
 	if err != nil {
-		return fmt.Errorf("connecting to %s: %w", url, err)
+		return fmt.Errorf("connecting to %s: %w", rawURL, err)
 	}
 	ws.SetReadLimit(1 << 20)
 	defer ws.CloseNow()
@@ -86,6 +107,12 @@ func Run(url string) error {
 			fmt.Fprintf(os.Stderr, "cotty: %s (%s)\r\n", msg.Text, mode)
 		case protocol.TypeInfo:
 			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", msg.Text)
+		case protocol.TypeWritable:
+			mode := "view-only"
+			if msg.Writable {
+				mode = "read-write"
+			}
+			fmt.Fprintf(os.Stderr, "\r\ncotty: your connection is now %s\r\n", mode)
 		case protocol.TypeResize:
 			// v0 guests don't resize their terminal; a size mismatch just
 			// means wrapped output. The web client (roadmap) will handle

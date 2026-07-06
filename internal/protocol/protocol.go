@@ -31,6 +31,15 @@ const (
 	TypeRegistered MsgType = "registered"
 	// TypeError reports a fatal protocol error; Text says why.
 	TypeError MsgType = "error"
+	// TypeControl carries a guest-management command (list/allow/deny/kick)
+	// from a relay-hosted session's host to the relay; Op and Name hold the
+	// command and its target.
+	TypeControl MsgType = "control"
+	// TypeControlResult answers a TypeControl frame; Ok and Text carry the
+	// outcome.
+	TypeControlResult MsgType = "control-result"
+	// TypeWritable tells a guest its write permission changed.
+	TypeWritable MsgType = "writable"
 )
 
 // Message is a single frame. Data is base64-encoded by encoding/json.
@@ -45,4 +54,10 @@ type Message struct {
 	Code string `json:"code,omitempty"`
 	// Writable tells a guest whether its input will be applied.
 	Writable bool `json:"writable,omitempty"`
+	// Op is the command on TypeControl frames: list, allow, deny, kick.
+	Op string `json:"op,omitempty"`
+	// Name is the guest a TypeControl frame targets.
+	Name string `json:"name,omitempty"`
+	// Ok reports success on TypeControlResult frames.
+	Ok bool `json:"ok,omitempty"`
 }

@@ -8,18 +8,17 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/tylerbroqs/cotty/internal/hub"
 	"github.com/tylerbroqs/cotty/internal/protocol"
+	"github.com/tylerbroqs/cotty/internal/session"
 	"github.com/tylerbroqs/cotty/internal/wsconn"
 )
 
 // localTransport serves guests directly from the host machine: an HTTP
-// server with a /ws endpoint, one hub fan-out for output.
+// server with a /ws endpoint and an in-process guest registry.
 type localTransport struct {
-	guests     *hub.Hub
+	guests     *session.Registry
 	server     *http.Server
 	code       string
-	allowWrite bool
 	writeInput func([]byte)
 }
 
@@ -30,9 +29,8 @@ func listenLocal(addr, code string, allowWrite bool, writeInput func([]byte)) (*
 	}
 
 	t := &localTransport{
-		guests:     hub.New(),
+		guests:     session.NewRegistry(allowWrite),
 		code:       code,
-		allowWrite: allowWrite,
 		writeInput: writeInput,
 	}
 	mux := http.NewServeMux()
@@ -54,6 +52,10 @@ func (t *localTransport) broadcast(msg protocol.Message) {
 	t.guests.Broadcast(msg)
 }
 
+func (t *localTransport) control(op, name string) (string, error) {
+	return t.guests.Apply(op, name)
+}
+
 func (t *localTransport) close() {
 	t.guests.Broadcast(protocol.Message{Type: protocol.TypeInfo, Text: "host ended the session"})
 	t.guests.CloseAll()
@@ -70,40 +72,35 @@ func (t *localTransport) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ws.SetReadLimit(1 << 20)
-	g := wsconn.New(ws)
+	conn := wsconn.New(ws)
 
-	t.guests.Add(g)
+	g := t.guests.Join(conn, r.URL.Query().Get("name"))
 	defer func() {
-		t.guests.Remove(g)
-		g.CloseNow()
-		fmt.Fprintf(os.Stderr, "\r\ncotty: guest left (%d connected)\r\n", t.guests.Count())
+		t.guests.Leave(g)
+		conn.CloseNow()
+		notice := fmt.Sprintf("%s left (%d connected)", g.Name, t.guests.Count())
+		fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", notice)
+		t.guests.Broadcast(protocol.Message{Type: protocol.TypeInfo, Text: notice})
 	}()
 
-	g.Send(protocol.Message{
+	conn.Send(protocol.Message{
 		Type:     protocol.TypeHello,
 		Version:  protocol.Version,
-		Text:     "welcome to cotty session " + t.code,
-		Writable: t.allowWrite,
+		Text:     fmt.Sprintf("welcome to cotty session %s — you are %s", t.code, g.Name),
+		Writable: g.Writable,
 	})
-	fmt.Fprintf(os.Stderr, "\r\ncotty: guest joined (%d connected)\r\n", t.guests.Count())
+	notice := fmt.Sprintf("%s joined (%d connected)", g.Name, t.guests.Count())
+	fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", notice)
+	t.guests.BroadcastExcept(g, protocol.Message{Type: protocol.TypeInfo, Text: notice})
 
-	warnedReadOnly := false
 	for {
 		var msg protocol.Message
-		if err := g.Read(r.Context(), &msg); err != nil {
+		if err := conn.Read(r.Context(), &msg); err != nil {
 			return
 		}
 		switch msg.Type {
 		case protocol.TypeInput:
-			if t.allowWrite {
-				t.writeInput(msg.Data)
-			} else if !warnedReadOnly {
-				warnedReadOnly = true
-				g.Send(protocol.Message{
-					Type: protocol.TypeInfo,
-					Text: "this session is view-only; the host started it without --write",
-				})
-			}
+			t.guests.HandleInput(g, msg.Data, t.writeInput)
 		default:
 			// Ignore unknown frames so old clients keep working against
 			// newer hosts.

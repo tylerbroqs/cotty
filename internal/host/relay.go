@@ -2,10 +2,12 @@ package host
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -20,10 +22,22 @@ const (
 )
 
 // relayTransport hosts a session through a relay server: the host dials
-// out (NAT-friendly) and the relay fans output out to guests.
+// out (NAT-friendly) and the relay owns the guest registry. Control
+// commands travel to the relay as frames; per-guest write permission is
+// enforced there, with a coarse re-check here so a misbehaving relay
+// can't inject input into a session that never allowed writing.
 type relayTransport struct {
 	conn   *wsconn.Conn
 	cancel context.CancelFunc
+
+	ctlMu   sync.Mutex // serializes control calls
+	pending chan protocol.Message
+
+	mu           sync.Mutex
+	pendingMu    sync.Mutex
+	defaultWrite bool
+	granted      map[string]bool
+	anyWrite     bool
 }
 
 // normalizeRelayURL turns what users pass for --relay ("relay.example.com:7374",
@@ -93,14 +107,20 @@ func dialRelay(relay, code string, writable bool, writeInput func([]byte)) (*rel
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t := &relayTransport{conn: conn, cancel: cancel}
+	t := &relayTransport{
+		conn:         conn,
+		cancel:       cancel,
+		defaultWrite: writable,
+		granted:      make(map[string]bool),
+		anyWrite:     writable,
+	}
 	go t.readLoop(ctx, writeInput)
 	go t.pingLoop(ctx)
 	return t, reply.Text, nil
 }
 
-// readLoop handles frames coming down from the relay: guest input and
-// join/leave notices.
+// readLoop handles frames coming down from the relay: guest input,
+// join/leave notices, and control-command results.
 func (t *relayTransport) readLoop(ctx context.Context, writeInput func([]byte)) {
 	for {
 		var msg protocol.Message
@@ -112,10 +132,67 @@ func (t *relayTransport) readLoop(ctx context.Context, writeInput func([]byte)) 
 		}
 		switch msg.Type {
 		case protocol.TypeInput:
-			writeInput(msg.Data)
+			t.mu.Lock()
+			ok := t.anyWrite
+			t.mu.Unlock()
+			if ok {
+				writeInput(msg.Data)
+			}
 		case protocol.TypeInfo:
 			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", msg.Text)
+		case protocol.TypeControlResult:
+			t.pendingMu.Lock()
+			ch := t.pending
+			t.pendingMu.Unlock()
+			if ch != nil {
+				select {
+				case ch <- msg:
+				default:
+				}
+			}
 		}
+	}
+}
+
+// control forwards a guest-management command to the relay and waits for
+// its result.
+func (t *relayTransport) control(op, name string) (string, error) {
+	t.ctlMu.Lock()
+	defer t.ctlMu.Unlock()
+
+	ch := make(chan protocol.Message, 1)
+	t.pendingMu.Lock()
+	t.pending = ch
+	t.pendingMu.Unlock()
+	defer func() {
+		t.pendingMu.Lock()
+		t.pending = nil
+		t.pendingMu.Unlock()
+	}()
+
+	if err := t.conn.Send(protocol.Message{Type: protocol.TypeControl, Op: op, Name: name}); err != nil {
+		return "", fmt.Errorf("sending command to relay: %w", err)
+	}
+
+	select {
+	case msg := <-ch:
+		if !msg.Ok {
+			return "", errors.New(msg.Text)
+		}
+		if op == "allow" || op == "deny" {
+			t.mu.Lock()
+			t.granted[name] = op == "allow"
+			t.anyWrite = t.defaultWrite
+			for _, w := range t.granted {
+				if w {
+					t.anyWrite = true
+				}
+			}
+			t.mu.Unlock()
+		}
+		return msg.Text, nil
+	case <-time.After(relayDialTimeout):
+		return "", errors.New("timed out waiting for the relay")
 	}
 }
 
