@@ -7,16 +7,15 @@ import (
 	"golang.org/x/term"
 )
 
-// The wordmark: solid full blocks only — no box-drawing outlines — so it
-// renders as one unbroken shape in any terminal font. Rows shade from
-// light to deep orange, top to bottom, like the logo.
+// The wordmark, in ANSI-shadow style. Rows shade from light to deep
+// orange, top to bottom, like the logo.
 var banner = []string{
-	" ██████   ██████  ████████ ████████ ██    ██",
-	"██       ██    ██    ██       ██     ██  ██ ",
-	"██       ██    ██    ██       ██      ████  ",
-	"██       ██    ██    ██       ██       ██   ",
-	"██       ██    ██    ██       ██       ██   ",
-	" ██████   ██████     ██       ██       ██   ",
+	" ██████╗  ██████╗ ████████╗████████╗██╗   ██╗",
+	"██╔════╝ ██╔═══██╗╚══██╔══╝╚══██╔══╝╚██╗ ██╔╝",
+	"██║      ██║   ██║   ██║      ██║    ╚████╔╝ ",
+	"██║      ██║   ██║   ██║      ██║     ╚██╔╝  ",
+	"╚██████╗ ╚██████╔╝   ██║      ██║      ██║   ",
+	" ╚═════╝  ╚═════╝    ╚═╝      ╚═╝      ╚═╝   ",
 }
 
 // bannerShades maps each banner row to a 256-color orange, light to deep.
