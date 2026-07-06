@@ -6,6 +6,7 @@ package host
 import (
 	"crypto/rand"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -133,6 +134,9 @@ func Run(opts Options) error {
 	fmt.Fprintf(os.Stderr, "cotty: hosting %s %s (guests are %s by default)\n", shell, where, mode)
 	fmt.Fprintf(os.Stderr, "cotty: session code %s\n", code)
 	fmt.Fprintf(os.Stderr, "cotty: guests join with: cotty join %q\n", joinURL)
+	if b := browserJoinURL(joinURL); b != "" {
+		fmt.Fprintf(os.Stderr, "cotty: or in a browser: %s\n", b)
+	}
 	fmt.Fprintf(os.Stderr, "cotty: manage guests: cotty ctl list | allow NAME | deny NAME | kick NAME\n\n")
 
 	// Attach the local terminal. When stdin isn't a TTY (headless hosting,
@@ -198,6 +202,32 @@ func Run(opts Options) error {
 	cmd.Wait()
 	fmt.Fprintf(os.Stderr, "\r\ncotty: session ended\r\n")
 	return nil
+}
+
+// browserJoinURL converts a websocket join URL into the equivalent link
+// for the embedded web client, moving the session code (and the session
+// key, when present) into the URL fragment so the key stays off the wire.
+func browserJoinURL(wsURL string) string {
+	u, err := url.Parse(wsURL)
+	if err != nil {
+		return ""
+	}
+	frag := "code=" + u.Query().Get("code")
+	if u.Fragment != "" {
+		frag += "&" + u.Fragment
+	}
+	switch u.Scheme {
+	case "ws":
+		u.Scheme = "http"
+	case "wss":
+		u.Scheme = "https"
+	default:
+		return ""
+	}
+	u.Path = "/join"
+	u.RawQuery = ""
+	u.Fragment = frag
+	return u.String()
 }
 
 func broadcastSize(tr transport, ptmx *os.File) {

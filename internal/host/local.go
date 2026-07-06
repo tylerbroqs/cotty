@@ -10,6 +10,7 @@ import (
 
 	"github.com/tylerbroqs/cotty/internal/protocol"
 	"github.com/tylerbroqs/cotty/internal/session"
+	"github.com/tylerbroqs/cotty/internal/webui"
 	"github.com/tylerbroqs/cotty/internal/wsconn"
 )
 
@@ -35,6 +36,7 @@ func listenLocal(addr, code string, allowWrite bool, writeInput func([]byte)) (*
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", t.handleWS)
+	mux.Handle("/", webui.Handler())
 	t.server = &http.Server{Handler: mux}
 	go t.server.Serve(ln)
 

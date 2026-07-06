@@ -13,7 +13,7 @@ import (
 	"github.com/tylerbroqs/cotty/internal/relay"
 )
 
-const version = "0.4.0-dev"
+const version = "0.5.0-dev"
 
 const usage = `cotty — the multiplayer terminal
 

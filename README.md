@@ -14,7 +14,7 @@ presence, and eventually per-user cursors and audit trails.
 
 ## Status
 
-Early (v0.4). Working today:
+Early (v0.5). Working today:
 
 - `cotty host` spawns your shell in a PTY and serves it over a websocket
 - `cotty join -name alice` mirrors the session in any terminal, with a
@@ -27,9 +27,12 @@ Early (v0.4). Working today:
   `cotty ctl list` — from any terminal on the host machine
 - Relayed sessions are **end-to-end encrypted by default** — the relay
   forwards ciphertext it cannot read
+- **Join from a browser**: every relay (and locally hosted session)
+  serves an embedded xterm.js client, with E2EE handled in-page by
+  WebCrypto — the key stays in the URL fragment, off the wire
 - Sessions are protected by a random join code
 
-Not yet built: web client. See the roadmap below.
+Next up: CRDT multiplayer (v1.0). See the roadmap below.
 
 ## Quick start
 
@@ -116,6 +119,23 @@ What the relay can still see: guest names, join/leave events, the session
 code, terminal size, and traffic timing/volume. Share the join URL over a
 channel you trust — anyone with the full URL has the key.
 
+### Joining from a browser
+
+The host prints a browser link next to the CLI one:
+
+```
+cotty: guests join with: cotty join "ws://relay:7374/ws?code=XJ4K2P#k=..."
+cotty: or in a browser: http://relay:7374/join#code=XJ4K2P&k=...
+```
+
+The page is an xterm.js terminal served by the relay (or by the host
+itself for local sessions) speaking the same websocket protocol as the
+CLI client. Encryption and decryption happen in the page via WebCrypto;
+the session code and key live in the URL fragment, which browsers never
+send to any server. Assets are embedded in the cotty binary — the page
+makes no CDN or third-party requests. Opening the bare page (no fragment)
+shows a join form instead.
+
 ## How it works
 
 ```
@@ -147,8 +167,8 @@ host terminal ── PTY ── ws (outbound) ──► relay ──► guest ws
 - ~~**v0.3 — identity & permissions**: named guests, per-guest read/write
   grants, join/leave presence, host can kick~~ ✅
 - ~~**v0.4 — end-to-end encryption**: relay sees ciphertext only~~ ✅
-- **v0.5 — web client**: join from a browser (xterm.js), proper resize
-  handling
+- ~~**v0.5 — web client**: join from a browser (xterm.js), proper resize
+  handling~~ ✅
 - **v1.0 — true multiplayer**: CRDT-backed shared input with per-user
   cursors, "who ran what" audit log, session recording & replay
 

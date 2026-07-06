@@ -24,6 +24,7 @@ import (
 
 	"github.com/tylerbroqs/cotty/internal/protocol"
 	"github.com/tylerbroqs/cotty/internal/session"
+	"github.com/tylerbroqs/cotty/internal/webui"
 	"github.com/tylerbroqs/cotty/internal/wsconn"
 )
 
@@ -71,12 +72,7 @@ func Run(opts Options) error {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		s.mu.Lock()
-		n := len(s.sessions)
-		s.mu.Unlock()
-		fmt.Fprintf(w, "cotty relay — %d active session(s)\n", n)
-	})
+	mux.Handle("/", webui.Handler())
 
 	log.Printf("cotty relay listening on %s", ln.Addr())
 	server := &http.Server{Handler: mux}
