@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cotty — the multiplayer terminal</title>
+<meta name="description" content="Host your shell, let teammates join from a terminal or browser, watch together, type together. End-to-end encrypted, single binary, open source.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23101418'/%3E%3Ctext x='8' y='12' font-family='monospace' font-size='11' font-weight='bold' fill='%23ff4fd8' text-anchor='middle'%3EY%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b0e12;
+    --panel: #101418;
+    --panel-2: #161b22;
+    --border: #21262d;
+    --text: #f0f6fc;
+    --muted: #8b949e;
+    --accent: #ff4fd8;
+    --green: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.6; }
+  code, pre, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+
+  header.site { display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 0; }
+  .brand { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700;
+    font-size: 18px; letter-spacing: 3px; color: var(--text); }
+  .brand span { color: var(--accent); }
+  nav a { color: var(--muted); margin-left: 22px; font-size: 14px; }
+  nav a:hover { color: var(--text); text-decoration: none; }
+
+  .hero { padding: 56px 0 28px; text-align: center; }
+  .wordmark { display: block; margin: 0 auto 8px; max-width: 560px; width: 100%; }
+  .tagline { font-size: 21px; color: var(--text); margin: 18px auto 8px; max-width: 640px; }
+  .sub { color: var(--muted); max-width: 620px; margin: 0 auto 28px; }
+  .cta { display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .btn { display: inline-block; padding: 10px 22px; border-radius: 8px; font-weight: 600;
+    font-size: 15px; }
+  .btn-primary { background: var(--accent); color: #14060f; }
+  .btn-primary:hover { text-decoration: none; filter: brightness(1.1); }
+  .btn-ghost { border: 1px solid var(--border); color: var(--text); }
+  .btn-ghost:hover { text-decoration: none; border-color: var(--muted); }
+  .install { margin: 26px auto 0; max-width: 560px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px;
+    font-size: 14px; text-align: left; overflow-x: auto; white-space: nowrap; }
+  .install .p { color: var(--green); user-select: none; }
+
+  .demo { margin: 48px auto 0; max-width: 760px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+    text-align: left; }
+  .demo .bar { display: flex; gap: 6px; padding: 10px 14px; background: var(--panel-2);
+    border-bottom: 1px solid var(--border); }
+  .demo .dot { width: 11px; height: 11px; border-radius: 50%; background: #30363d; }
+  .demo .dot:first-child { background: #f85149; }
+  .demo .dot:nth-child(2) { background: #d29922; }
+  .demo .dot:nth-child(3) { background: var(--green); }
+  .demo pre { margin: 0; padding: 18px 20px; font-size: 13.5px; line-height: 1.55;
+    overflow-x: auto; }
+  .demo .c { color: var(--muted); }
+  .demo .a { color: var(--accent); }
+  .demo .g { color: var(--green); }
+
+  section { padding: 56px 0 8px; }
+  h2 { font-size: 24px; margin: 0 0 10px; }
+  .lead { color: var(--muted); max-width: 640px; margin-bottom: 30px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; }
+  .card h3 { margin: 0 0 8px; font-size: 16px; }
+  .card h3 .tag { color: var(--accent); margin-right: 8px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+
+  pre.block { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px; font-size: 13.5px; overflow-x: auto; }
+  pre.block .c { color: var(--muted); }
+
+  footer { margin-top: 64px; padding: 26px 0 40px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 14px; display: flex; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="site">
+  <div class="brand">COTT<span>Y</span></div>
+  <nav>
+    <a href="#features">Features</a>
+    <a href="#quickstart">Quick start</a>
+    <a href="https://github.com/tylerbroqs/cotty">GitHub</a>
+  </nav>
+</header>
+
+<div class="hero">
+  <svg class="wordmark" viewBox="0 0 640 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="COTTY">
+    <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="20" font-weight="bold">
+      <text x="48" y="34"  xml:space="preserve"><tspan fill="#f0f6fc"> ██████╗ ██████╗ ████████╗████████╗</tspan><tspan fill="#ff4fd8">██╗   ██╗</tspan></text>
+      <text x="48" y="56"  xml:space="preserve"><tspan fill="#f0f6fc">██╔════╝██╔═══██╗╚══██╔══╝╚══██╔══╝</tspan><tspan fill="#ff4fd8">╚██╗ ██╔╝</tspan></text>
+      <text x="48" y="78"  xml:space="preserve"><tspan fill="#f0f6fc">██║     ██║   ██║   ██║      ██║   </tspan><tspan fill="#ff4fd8"> ╚████╔╝ </tspan></text>
+      <text x="48" y="100" xml:space="preserve"><tspan fill="#f0f6fc">██║     ██║   ██║   ██║      ██║   </tspan><tspan fill="#ff4fd8">  ╚██╔╝  </tspan></text>
+      <text x="48" y="122" xml:space="preserve"><tspan fill="#f0f6fc">╚██████╗╚██████╔╝   ██║      ██║   </tspan><tspan fill="#ff4fd8">   ██║   </tspan></text>
+      <text x="48" y="144" xml:space="preserve"><tspan fill="#f0f6fc"> ╚═════╝ ╚═════╝    ╚═╝      ╚═╝   </tspan><tspan fill="#ff4fd8">   ╚═╝   </tspan></text>
+    </g>
+  </svg>
+  <p class="tagline">The multiplayer terminal.</p>
+  <p class="sub">Host your shell. Teammates join from a terminal or a browser —
+    watch together, and type together when you let them. End-to-end encrypted,
+    one binary, open source.</p>
+  <div class="cta">
+    <a class="btn btn-primary" href="https://github.com/tylerbroqs/cotty">Get Cotty on GitHub</a>
+    <a class="btn btn-ghost" href="#quickstart">Quick start</a>
+  </div>
+  <div class="install mono"><span class="p">$</span> go install github.com/tylerbroqs/cotty/cmd/cotty@latest</div>
+
+  <div class="demo mono">
+    <div class="bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+    <pre>
+<span class="p g">$</span> cotty host --relay relay.example.com:7374
+<span class="c">cotty: hosting /bin/zsh via relay relay.example.com:7374 (end-to-end encrypted)</span>
+<span class="c">cotty: session code </span><span class="a">XJ4K2P</span>
+<span class="c">cotty: guests join with: cotty join "ws://relay.example.com:7374/ws?code=XJ4K2P#k=8D0Uy…"</span>
+<span class="c">cotty: or in a browser: http://relay.example.com:7374/join#code=XJ4K2P&amp;k=8D0Uy…</span>
+
+<span class="c">cotty: </span><span class="a">alice</span><span class="c"> joined (1 connected)</span>
+<span class="p g">$</span> cotty ctl allow alice
+<span class="g">alice can now type</span></pre>
+  </div>
+</div>
+
+<section id="features">
+  <h2>Built for working together in a shell</h2>
+  <p class="lead">Not screen sharing. A real shared session with permissions,
+    presence, and encryption — the things pair debugging and incident
+    response actually need.</p>
+  <div class="grid">
+    <div class="card">
+      <h3><span class="tag">##</span>Multiplayer, not a movie</h3>
+      <p>Guests connect to the live PTY. When you grant them write access,
+        their keystrokes land in the same shell — no lag-smeared video of
+        your terminal.</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag">##</span>End-to-end encrypted</h3>
+      <p>Relayed sessions are sealed with AES-256-GCM by default. The key
+        travels in the URL fragment, which never touches the wire — the
+        relay forwards ciphertext it cannot read.</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag">##</span>Works behind NAT</h3>
+      <p>The host dials out to a relay you can self-host with one command.
+        No port forwarding, no firewall tickets, no agent daemons.</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag">##</span>Join from a browser</h3>
+      <p>Every relay serves an embedded xterm.js client — decryption included,
+        via WebCrypto. Send a link; teammates need nothing installed.</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag">##</span>Per-guest permissions</h3>
+      <p>Everyone joins view-only with a name. <code>cotty ctl allow alice</code>,
+        <code>deny</code>, <code>kick</code> — live, from any terminal on the
+        host, even inside the session itself.</p>
+    </div>
+    <div class="card">
+      <h3><span class="tag">##</span>One small binary</h3>
+      <p>Host, client, relay, and web UI in a single Go binary with no runtime
+        dependencies. MIT licensed, no telemetry, no accounts.</p>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <h2>Quick start</h2>
+  <p class="lead">Share a shell on your LAN in ten seconds, or across the
+    internet with a relay.</p>
+  <pre class="block mono"><span class="c"># install</span>
+go install github.com/tylerbroqs/cotty/cmd/cotty@latest
+
+<span class="c"># share your shell (guests are view-only by default)</span>
+cotty host
+
+<span class="c"># a teammate joins from their terminal…</span>
+cotty join -name alice "ws://192.168.1.10:7373/ws?code=XJ4K2P"
+
+<span class="c"># …or from a browser, no install needed</span>
+http://192.168.1.10:7373/join#code=XJ4K2P
+
+<span class="c"># let alice type; kick bob</span>
+cotty ctl allow alice
+cotty ctl kick bob</pre>
+</section>
+
+<footer>
+  <div>MIT licensed. Built in the open.</div>
+  <div><a href="https://github.com/tylerbroqs/cotty">github.com/tylerbroqs/cotty</a></div>
+</footer>
+
+</div>
+</body>
+</html>
