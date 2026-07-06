@@ -14,16 +14,19 @@ presence, and eventually per-user cursors and audit trails.
 
 ## Status
 
-Early scaffold (v0). The core loop already works on a LAN:
+Early (v0.2). Working today:
 
 - `cotty host` spawns your shell in a PTY and serves it over a websocket
 - `cotty join` mirrors the session in any terminal
+- `cotty relay` + `cotty host --relay <server>` share sessions across
+  networks without port forwarding — the host dials out, so NAT is not a
+  problem
 - Guests are **view-only by default**; the host opts into shared typing
   with `--write`
 - Sessions are protected by a random join code
 
-Not yet built: relay for NAT traversal, per-guest identity, encryption,
-web client. See the roadmap below.
+Not yet built: per-guest identity, encryption, web client. See the
+roadmap below.
 
 ## Quick start
 
@@ -46,7 +49,33 @@ go build -o cotty ./cmd/cotty
 Guests press `Ctrl-]` to leave. The session ends when the host's shell
 exits.
 
-## How it works (v0)
+### Across networks: hosting through a relay
+
+Direct hosting requires guests to reach your machine. When you're behind
+NAT (home network, office, coffee shop), run a relay on any machine with a
+public address and host through it — the host connects *outward*, so no
+port forwarding is needed on either side:
+
+```sh
+# On a public server
+cotty relay -addr :7374
+# behind TLS? tell it the public base URL guests should use:
+cotty relay -addr :7374 -public-url wss://relay.example.com
+
+# On your machine (anywhere)
+cotty host --relay relay.example.com:7374
+# prints: cotty join "ws://relay.example.com:7374/ws?code=XJ4K2P"
+
+# Guests, from anywhere
+cotty join "ws://relay.example.com:7374/ws?code=XJ4K2P"
+```
+
+The relay forwards frames and enforces the session's read-only setting;
+the host additionally enforces it locally. Note that in v0.2 the relay can
+read session traffic — run your own relay for anything sensitive.
+End-to-end encryption is roadmap v0.4.
+
+## How it works
 
 ```
 host terminal ──┐
@@ -62,10 +91,18 @@ local terminal and every connected guest. Frames are JSON over websocket —
 see [`internal/protocol`](internal/protocol/protocol.go). v0 is
 deliberately debuggable; a binary protocol comes later.
 
+With a relay, the fan-out moves server-side — the host holds one outbound
+connection and the relay maintains the guest hub:
+
+```
+host terminal ── PTY ── ws (outbound) ──► relay ──► guest ws
+                                            │ ────► guest ws
+```
+
 ## Roadmap
 
-- **v0.2 — relay**: `cotty host --relay <server>` so sessions work across
-  NATs without port forwarding; short shareable session URLs
+- ~~**v0.2 — relay**: `cotty host --relay <server>` so sessions work across
+  NATs without port forwarding; short shareable session URLs~~ ✅
 - **v0.3 — identity & permissions**: named guests, per-guest read/write
   grants, join/leave presence, host can kick
 - **v0.4 — end-to-end encryption**: relay sees ciphertext only

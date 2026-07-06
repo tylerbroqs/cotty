@@ -23,6 +23,14 @@ const (
 	TypeResize MsgType = "resize"
 	// TypeInfo carries human-readable notices (join/leave, read-only, ...).
 	TypeInfo MsgType = "info"
+	// TypeRegister is the first frame a relay-hosted session sends on a
+	// relay's /host endpoint; it carries Code and Writable.
+	TypeRegister MsgType = "register"
+	// TypeRegistered is the relay's success reply; Text carries the URL
+	// guests should join with.
+	TypeRegistered MsgType = "registered"
+	// TypeError reports a fatal protocol error; Text says why.
+	TypeError MsgType = "error"
 )
 
 // Message is a single frame. Data is base64-encoded by encoding/json.
@@ -33,6 +41,8 @@ type Message struct {
 	Cols    int     `json:"cols,omitempty"`
 	Rows    int     `json:"rows,omitempty"`
 	Text    string  `json:"text,omitempty"`
+	// Code is the session code, set on TypeRegister frames.
+	Code string `json:"code,omitempty"`
 	// Writable tells a guest whether its input will be applied.
 	Writable bool `json:"writable,omitempty"`
 }

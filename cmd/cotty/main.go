@@ -9,22 +9,31 @@ import (
 
 	"github.com/tylerbroqs/cotty/internal/client"
 	"github.com/tylerbroqs/cotty/internal/host"
+	"github.com/tylerbroqs/cotty/internal/relay"
 )
 
-const version = "0.1.0-dev"
+const version = "0.2.0-dev"
 
 const usage = `cotty — the multiplayer terminal
 
 Usage:
   cotty host [flags]      Share your shell with guests
   cotty join <url>        Join a hosted session
+  cotty relay [flags]     Run a relay server for NAT-friendly sessions
   cotty version           Print version
 
 Host flags:
   -addr string    Listen address for guests (default ":7373")
+  -relay string   Host through a relay instead of listening locally,
+                  e.g. -relay relay.example.com:7374 (works behind NAT)
   -shell string   Shell to run (default $SHELL, then /bin/sh)
   -write          Allow guests to type into the session (default view-only)
   -code string    Use a fixed session code instead of a random one
+
+Relay flags:
+  -addr string        Listen address (default ":7374")
+  -public-url string  Base URL guests use to reach this relay,
+                      e.g. wss://relay.example.com (default: request host)
 
 Join:
   The host prints the URL to use, e.g.
@@ -43,12 +52,14 @@ func main() {
 		printBanner(os.Stderr)
 		fs := flag.NewFlagSet("host", flag.ExitOnError)
 		addr := fs.String("addr", ":7373", "listen address for guests")
+		relayAddr := fs.String("relay", "", "relay server to host through")
 		shell := fs.String("shell", "", "shell to run (default $SHELL)")
 		write := fs.Bool("write", false, "allow guests to type")
 		code := fs.String("code", "", "fixed session code")
 		fs.Parse(os.Args[2:])
 		err := host.Run(host.Options{
 			Addr:       *addr,
+			Relay:      *relayAddr,
 			Shell:      *shell,
 			AllowWrite: *write,
 			Code:       *code,
@@ -63,6 +74,15 @@ func main() {
 			os.Exit(2)
 		}
 		if err := client.Run(os.Args[2]); err != nil {
+			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
+			os.Exit(1)
+		}
+	case "relay":
+		fs := flag.NewFlagSet("relay", flag.ExitOnError)
+		addr := fs.String("addr", ":7374", "listen address")
+		publicURL := fs.String("public-url", "", "base URL guests use to reach this relay")
+		fs.Parse(os.Args[2:])
+		if err := relay.Run(relay.Options{Addr: *addr, PublicURL: *publicURL}); err != nil {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
 			os.Exit(1)
 		}
