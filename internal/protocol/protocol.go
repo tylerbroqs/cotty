@@ -60,4 +60,7 @@ type Message struct {
 	Name string `json:"name,omitempty"`
 	// Ok reports success on TypeControlResult frames.
 	Ok bool `json:"ok,omitempty"`
+	// Encrypted marks a session as end-to-end encrypted, on TypeRegister
+	// (host to relay) and TypeHello (to each guest) frames.
+	Encrypted bool `json:"enc,omitempty"`
 }

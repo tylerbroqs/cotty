@@ -12,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/tylerbroqs/cotty/internal/e2ee"
 	"github.com/tylerbroqs/cotty/internal/protocol"
 	"github.com/tylerbroqs/cotty/internal/wsconn"
 )
@@ -29,6 +30,9 @@ const (
 type relayTransport struct {
 	conn   *wsconn.Conn
 	cancel context.CancelFunc
+	// cipher seals output and opens guest input for end-to-end encrypted
+	// sessions; nil when the host opted out with -plain.
+	cipher *e2ee.Cipher
 
 	ctlMu   sync.Mutex // serializes control calls
 	pending chan protocol.Message
@@ -63,10 +67,25 @@ func normalizeRelayURL(raw string) (string, error) {
 	return u.String(), nil
 }
 
-func dialRelay(relay, code string, writable bool, writeInput func([]byte)) (*relayTransport, string, error) {
+func dialRelay(relay, code string, writable, encrypt bool, writeInput func([]byte)) (*relayTransport, string, error) {
 	target, err := normalizeRelayURL(relay)
 	if err != nil {
 		return nil, "", err
+	}
+
+	var (
+		cipher *e2ee.Cipher
+		keyStr string
+	)
+	if encrypt {
+		key, err := e2ee.NewKey()
+		if err != nil {
+			return nil, "", fmt.Errorf("generating session key: %w", err)
+		}
+		if cipher, err = e2ee.New(key); err != nil {
+			return nil, "", err
+		}
+		keyStr = e2ee.EncodeKey(key)
 	}
 
 	dialCtx, dialCancel := context.WithTimeout(context.Background(), relayDialTimeout)
@@ -79,10 +98,11 @@ func dialRelay(relay, code string, writable bool, writeInput func([]byte)) (*rel
 	conn := wsconn.New(ws)
 
 	if err := conn.Send(protocol.Message{
-		Type:     protocol.TypeRegister,
-		Version:  protocol.Version,
-		Code:     code,
-		Writable: writable,
+		Type:      protocol.TypeRegister,
+		Version:   protocol.Version,
+		Code:      code,
+		Writable:  writable,
+		Encrypted: encrypt,
 	}); err != nil {
 		conn.CloseNow()
 		return nil, "", fmt.Errorf("registering with relay: %w", err)
@@ -110,13 +130,21 @@ func dialRelay(relay, code string, writable bool, writeInput func([]byte)) (*rel
 	t := &relayTransport{
 		conn:         conn,
 		cancel:       cancel,
+		cipher:       cipher,
 		defaultWrite: writable,
 		granted:      make(map[string]bool),
 		anyWrite:     writable,
 	}
 	go t.readLoop(ctx, writeInput)
 	go t.pingLoop(ctx)
-	return t, reply.Text, nil
+
+	// The key travels in the URL fragment, which clients never send over
+	// the network — so guests get it, the relay doesn't.
+	joinURL := reply.Text
+	if encrypt {
+		joinURL += "#k=" + keyStr
+	}
+	return t, joinURL, nil
 }
 
 // readLoop handles frames coming down from the relay: guest input,
@@ -135,9 +163,17 @@ func (t *relayTransport) readLoop(ctx context.Context, writeInput func([]byte)) 
 			t.mu.Lock()
 			ok := t.anyWrite
 			t.mu.Unlock()
-			if ok {
-				writeInput(msg.Data)
+			if !ok {
+				continue
 			}
+			data := msg.Data
+			if t.cipher != nil {
+				var err error
+				if data, err = t.cipher.Open(data); err != nil {
+					continue // wrong key or tampering; drop
+				}
+			}
+			writeInput(data)
 		case protocol.TypeInfo:
 			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", msg.Text)
 		case protocol.TypeControlResult:
@@ -214,6 +250,9 @@ func (t *relayTransport) pingLoop(ctx context.Context) {
 }
 
 func (t *relayTransport) broadcast(msg protocol.Message) {
+	if t.cipher != nil && msg.Type == protocol.TypeOutput {
+		msg.Data = t.cipher.Seal(msg.Data)
+	}
 	t.conn.Send(msg)
 }
 

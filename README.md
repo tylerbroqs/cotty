@@ -14,7 +14,7 @@ presence, and eventually per-user cursors and audit trails.
 
 ## Status
 
-Early (v0.3). Working today:
+Early (v0.4). Working today:
 
 - `cotty host` spawns your shell in a PTY and serves it over a websocket
 - `cotty join -name alice` mirrors the session in any terminal, with a
@@ -25,9 +25,11 @@ Early (v0.3). Working today:
 - Guests are **view-only by default**, with per-guest grants at runtime:
   `cotty ctl allow alice`, `cotty ctl deny alice`, `cotty ctl kick bob`,
   `cotty ctl list` — from any terminal on the host machine
+- Relayed sessions are **end-to-end encrypted by default** — the relay
+  forwards ciphertext it cannot read
 - Sessions are protected by a random join code
 
-Not yet built: encryption, web client. See the roadmap below.
+Not yet built: web client. See the roadmap below.
 
 ## Quick start
 
@@ -90,9 +92,29 @@ cotty join "ws://relay.example.com:7374/ws?code=XJ4K2P"
 ```
 
 The relay forwards frames and enforces the session's read-only setting;
-the host additionally enforces it locally. Note that in v0.2 the relay can
-read session traffic — run your own relay for anything sensitive.
-End-to-end encryption is roadmap v0.4.
+the host additionally enforces it locally.
+
+### End-to-end encryption
+
+Relayed sessions are encrypted end-to-end by default. The host generates
+a 256-bit session key and puts it in the join URL's *fragment*:
+
+```
+cotty join "ws://relay.example.com:7374/ws?code=XJ4K2P#k=8D0Uy-5ugL..."
+                                                      └── never sent over
+                                                          the network
+```
+
+URL fragments are stripped by clients before any request is made, so
+guests receive the key from the host (through however the URL was shared)
+while the relay never sees it. Terminal output and guest input are sealed
+with AES-256-GCM; a guest joining without the key is refused with an
+explanation, and a wrong key fails loudly rather than showing garbage.
+Opt out with `cotty host --relay ... -plain`.
+
+What the relay can still see: guest names, join/leave events, the session
+code, terminal size, and traffic timing/volume. Share the join URL over a
+channel you trust — anyone with the full URL has the key.
 
 ## How it works
 
@@ -124,7 +146,7 @@ host terminal ── PTY ── ws (outbound) ──► relay ──► guest ws
   NATs without port forwarding; short shareable session URLs~~ ✅
 - ~~**v0.3 — identity & permissions**: named guests, per-guest read/write
   grants, join/leave presence, host can kick~~ ✅
-- **v0.4 — end-to-end encryption**: relay sees ciphertext only
+- ~~**v0.4 — end-to-end encryption**: relay sees ciphertext only~~ ✅
 - **v0.5 — web client**: join from a browser (xterm.js), proper resize
   handling
 - **v1.0 — true multiplayer**: CRDT-backed shared input with per-user

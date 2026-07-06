@@ -5,6 +5,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -13,29 +14,46 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"golang.org/x/term"
 
+	"github.com/tylerbroqs/cotty/internal/e2ee"
 	"github.com/tylerbroqs/cotty/internal/protocol"
 )
 
 // escapeKey disconnects the guest locally (Ctrl-], like telnet).
 const escapeKey = 0x1d
 
-// withName adds the guest's display name to the join URL. An empty name
-// falls back to $USER, then to the server-side default.
-func withName(rawURL, name string) string {
+// parseJoinURL extracts the end-to-end encryption key from the URL's
+// #k=... fragment (never sent over the network) and adds the guest's
+// display name, returning the URL to dial. An empty name falls back to
+// $USER, then to the server-side default.
+func parseJoinURL(rawURL, name string) (target string, cipher *e2ee.Cipher, err error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid URL %q: %w", rawURL, err)
+	}
+	if u.Fragment != "" {
+		vals, _ := url.ParseQuery(u.Fragment)
+		keyStr := vals.Get("k")
+		if keyStr == "" {
+			return "", nil, fmt.Errorf("unrecognized URL fragment %q (expected #k=SESSION-KEY)", u.Fragment)
+		}
+		key, err := e2ee.DecodeKey(keyStr)
+		if err != nil {
+			return "", nil, err
+		}
+		if cipher, err = e2ee.New(key); err != nil {
+			return "", nil, err
+		}
+		u.Fragment = ""
+	}
 	if name == "" {
 		name = os.Getenv("USER")
 	}
-	if name == "" {
-		return rawURL
+	if name != "" {
+		q := u.Query()
+		q.Set("name", name)
+		u.RawQuery = q.Encode()
 	}
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL
-	}
-	q := u.Query()
-	q.Set("name", name)
-	u.RawQuery = q.Encode()
-	return u.String()
+	return u.String(), cipher, nil
 }
 
 // Run joins the session at rawURL (ws://host:port/ws?code=...) as name and
@@ -44,7 +62,10 @@ func Run(rawURL, name string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	target := withName(rawURL, name)
+	target, cipher, err := parseJoinURL(rawURL, name)
+	if err != nil {
+		return err
+	}
 	ws, _, err := websocket.Dial(ctx, target, nil)
 	if err != nil {
 		return fmt.Errorf("connecting to %s: %w", rawURL, err)
@@ -77,6 +98,9 @@ func Run(rawURL, name string) error {
 				}
 				data := make([]byte, n)
 				copy(data, buf[:n])
+				if cipher != nil {
+					data = cipher.Seal(data)
+				}
 				if werr := wsjson.Write(ctx, ws, protocol.Message{
 					Type: protocol.TypeInput,
 					Data: data,
@@ -98,11 +122,26 @@ func Run(rawURL, name string) error {
 		}
 		switch msg.Type {
 		case protocol.TypeOutput:
-			os.Stdout.Write(msg.Data)
+			data := msg.Data
+			if cipher != nil {
+				if data, err = cipher.Open(data); err != nil {
+					return errors.New("cannot decrypt session output — wrong session key?")
+				}
+			}
+			os.Stdout.Write(data)
 		case protocol.TypeHello:
+			if msg.Encrypted && cipher == nil {
+				return errors.New("this session is end-to-end encrypted; join with the full URL, including its #k= part")
+			}
+			if !msg.Encrypted && cipher != nil {
+				return errors.New("the URL carries a session key but this session is not encrypted; refusing to join")
+			}
 			mode := "view-only"
 			if msg.Writable {
 				mode = "read-write"
+			}
+			if msg.Encrypted {
+				mode += ", end-to-end encrypted"
 			}
 			fmt.Fprintf(os.Stderr, "cotty: %s (%s)\r\n", msg.Text, mode)
 		case protocol.TypeInfo:

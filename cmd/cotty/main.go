@@ -13,7 +13,7 @@ import (
 	"github.com/tylerbroqs/cotty/internal/relay"
 )
 
-const version = "0.3.0-dev"
+const version = "0.4.0-dev"
 
 const usage = `cotty — the multiplayer terminal
 
@@ -32,6 +32,10 @@ Host flags:
   -write          Let guests type by default (otherwise view-only until
                   granted with 'cotty ctl allow NAME')
   -code string    Use a fixed session code instead of a random one
+  -plain          Disable end-to-end encryption for relayed sessions
+                  (relayed sessions are encrypted by default; the join
+                  URL's #k= part carries the key and never reaches the
+                  relay)
 
 Join flags:
   -name string    Display name other participants see (default $USER)
@@ -70,6 +74,7 @@ func main() {
 		shell := fs.String("shell", "", "shell to run (default $SHELL)")
 		write := fs.Bool("write", false, "allow guests to type")
 		code := fs.String("code", "", "fixed session code")
+		plain := fs.Bool("plain", false, "disable end-to-end encryption for relayed sessions")
 		fs.Parse(os.Args[2:])
 		err := host.Run(host.Options{
 			Addr:       *addr,
@@ -77,6 +82,7 @@ func main() {
 			Shell:      *shell,
 			AllowWrite: *write,
 			Code:       *code,
+			Plain:      *plain,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)

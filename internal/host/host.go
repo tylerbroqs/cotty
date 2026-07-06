@@ -33,6 +33,9 @@ type Options struct {
 	// When set, the host dials out instead of listening, so it works from
 	// behind NAT without port forwarding.
 	Relay string
+	// Plain disables end-to-end encryption for relayed sessions. Relayed
+	// sessions are encrypted by default so the relay only sees ciphertext.
+	Plain bool
 }
 
 // transport delivers frames from the host to its guests. Guest input
@@ -98,7 +101,7 @@ func Run(opts Options) error {
 		joinURL string
 	)
 	if opts.Relay != "" {
-		tr, joinURL, err = dialRelay(opts.Relay, code, opts.AllowWrite, writeInput)
+		tr, joinURL, err = dialRelay(opts.Relay, code, opts.AllowWrite, !opts.Plain, writeInput)
 	} else {
 		tr, joinURL, err = listenLocal(opts.Addr, code, opts.AllowWrite, writeInput)
 	}
@@ -121,6 +124,11 @@ func Run(opts Options) error {
 	where := "locally"
 	if opts.Relay != "" {
 		where = "via relay " + opts.Relay
+		if opts.Plain {
+			where += " (NOT encrypted)"
+		} else {
+			where += " (end-to-end encrypted)"
+		}
 	}
 	fmt.Fprintf(os.Stderr, "cotty: hosting %s %s (guests are %s by default)\n", shell, where, mode)
 	fmt.Fprintf(os.Stderr, "cotty: session code %s\n", code)

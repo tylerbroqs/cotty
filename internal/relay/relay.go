@@ -39,9 +39,10 @@ type Options struct {
 
 // relaySession is one live hosted session on the relay.
 type relaySession struct {
-	code   string
-	host   *wsconn.Conn
-	guests *session.Registry
+	code      string
+	host      *wsconn.Conn
+	guests    *session.Registry
+	encrypted bool
 }
 
 // Server is a running relay.
@@ -116,7 +117,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := &relaySession{code: code, host: conn, guests: session.NewRegistry(reg.Writable)}
+	sess := &relaySession{code: code, host: conn, guests: session.NewRegistry(reg.Writable), encrypted: reg.Encrypted}
 	s.mu.Lock()
 	if _, exists := s.sessions[code]; exists {
 		s.mu.Unlock()
@@ -193,10 +194,11 @@ func (s *Server) handleGuest(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	conn.Send(protocol.Message{
-		Type:     protocol.TypeHello,
-		Version:  protocol.Version,
-		Text:     fmt.Sprintf("welcome to cotty session %s — you are %s", code, g.Name),
-		Writable: g.Writable,
+		Type:      protocol.TypeHello,
+		Version:   protocol.Version,
+		Text:      fmt.Sprintf("welcome to cotty session %s — you are %s", code, g.Name),
+		Writable:  g.Writable,
+		Encrypted: sess.encrypted,
 	})
 	notice := fmt.Sprintf("%s joined (%d connected)", g.Name, sess.guests.Count())
 	sess.host.Send(protocol.Message{Type: protocol.TypeInfo, Text: notice})
