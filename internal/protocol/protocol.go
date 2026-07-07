@@ -6,6 +6,22 @@
 // protocol trivially debuggable with any websocket client.
 package protocol
 
+import "strings"
+
+// SanitizeText strips terminal control characters from remote-supplied
+// notice text (TypeInfo, TypeControlResult, ...). Notices travel outside
+// the end-to-end encryption and are printed to the local terminal, so
+// without this a malicious peer or relay could inject ANSI escape
+// sequences into it.
+func SanitizeText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // Version is the protocol version spoken by this build.
 const Version = 0
 

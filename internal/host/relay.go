@@ -121,7 +121,7 @@ func dialRelay(relay, code string, writable, encrypt bool, writeInput func(who s
 	case protocol.TypeRegistered:
 	case protocol.TypeError:
 		conn.CloseNow()
-		return nil, "", fmt.Errorf("relay refused session: %s", reply.Text)
+		return nil, "", fmt.Errorf("relay refused session: %s", protocol.SanitizeText(reply.Text))
 	default:
 		conn.CloseNow()
 		return nil, "", fmt.Errorf("unexpected relay reply %q", reply.Type)
@@ -141,7 +141,7 @@ func dialRelay(relay, code string, writable, encrypt bool, writeInput func(who s
 
 	// The key travels in the URL fragment, which clients never send over
 	// the network — so guests get it, the relay doesn't.
-	joinURL := reply.Text
+	joinURL := protocol.SanitizeText(reply.Text)
 	if encrypt {
 		joinURL += "#k=" + keyStr
 	}
@@ -180,8 +180,9 @@ func (t *relayTransport) readLoop(ctx context.Context, writeInput func(who strin
 			}
 			writeInput(who, data)
 		case protocol.TypeInfo:
-			aud.Event("info", "", msg.Text)
-			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", msg.Text)
+			text := protocol.SanitizeText(msg.Text)
+			aud.Event("info", "", text)
+			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", text)
 		case protocol.TypeControlResult:
 			t.pendingMu.Lock()
 			ch := t.pending
@@ -218,6 +219,7 @@ func (t *relayTransport) control(op, name string) (string, error) {
 
 	select {
 	case msg := <-ch:
+		msg.Text = protocol.SanitizeText(msg.Text)
 		if !msg.Ok {
 			return "", errors.New(msg.Text)
 		}

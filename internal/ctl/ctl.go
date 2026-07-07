@@ -48,6 +48,14 @@ func Serve(path string, h Handler) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listening on control socket %s: %w", path, err)
 	}
+	// The socket controls guest permissions, so only its owner may use
+	// it — the default (umask-derived) mode could let other local users
+	// connect.
+	if err := os.Chmod(path, 0o600); err != nil {
+		ln.Close()
+		os.Remove(path)
+		return nil, fmt.Errorf("securing control socket %s: %w", path, err)
+	}
 	s := &Server{ln: ln, path: path}
 	go func() {
 		for {

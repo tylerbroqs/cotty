@@ -143,9 +143,9 @@ func Run(rawURL, name string) error {
 			if msg.Encrypted {
 				mode += ", end-to-end encrypted"
 			}
-			fmt.Fprintf(os.Stderr, "cotty: %s (%s)\r\n", msg.Text, mode)
+			fmt.Fprintf(os.Stderr, "cotty: %s (%s)\r\n", protocol.SanitizeText(msg.Text), mode)
 		case protocol.TypeInfo:
-			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", msg.Text)
+			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", protocol.SanitizeText(msg.Text))
 		case protocol.TypeWritable:
 			mode := "view-only"
 			if msg.Writable {
