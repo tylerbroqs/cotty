@@ -4,203 +4,493 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cotty — the multiplayer terminal</title>
-<meta name="description" content="Host your shell, let teammates join from a terminal or browser, watch together, type together. End-to-end encrypted, single binary, open source.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23101418'/%3E%3Ctext x='8' y='12' font-family='monospace' font-size='11' font-weight='bold' fill='%23ff4fd8' text-anchor='middle'%3EY%3C/text%3E%3C/svg%3E">
+<meta name="description" content="Host your shell, let teammates join from a terminal or browser — watch together, type together. End-to-end encrypted, per-guest permissions, one Go binary. Open source, MIT.">
+<link rel="canonical" href="https://orlixai.xyz/cotty/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://orlixai.xyz/cotty/">
+<meta property="og:title" content="Cotty — the multiplayer terminal">
+<meta property="og:description" content="Your shell. Your guests. Your rules. A shared live terminal with E2EE, permissions, presence, and an audit trail — one Go binary, MIT licensed, by Orlix.">
+<meta name="theme-color" content="#070708">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23070708'/%3E%3Ctext x='8' y='12' font-family='monospace' font-size='11' font-weight='bold' fill='%23ff9500' text-anchor='middle'%3EY%3C/text%3E%3C/svg%3E">
 <style>
   :root {
-    --bg: #0b0e12;
-    --panel: #101418;
-    --panel-2: #161b22;
-    --border: #21262d;
-    --text: #f0f6fc;
-    --muted: #8b949e;
-    --accent: #ff4fd8;
-    --green: #3fb950;
+    --bg: #070708;
+    --panel: #0e0e10;
+    --panel-2: #131316;
+    --border: #242429;
+    --border-hi: #3a3a41;
+    --text: #ececee;
+    --muted: #9a9aa2;
+    --dim: #6c6c74;
+    --gold: #ffd75f;
+    --orange: #ff9500;
+    --burnt: #a85400;
+    --green: #5dd1a4;
+    --red: #ff7a7a;
+    --yellow: #ffc25c;
   }
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   html, body { margin: 0; background: var(--bg); color: var(--text);
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    line-height: 1.6; }
-  code, pre, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
-  a { color: var(--accent); text-decoration: none; }
+    line-height: 1.65; -webkit-font-smoothing: antialiased; }
+  code, pre, kbd, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  a { color: var(--orange); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+  ::selection { background: rgba(255,149,0,.28); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 22px; }
 
-  header.site { display: flex; align-items: center; justify-content: space-between;
-    padding: 18px 0; }
-  .brand { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700;
-    font-size: 18px; letter-spacing: 3px; color: var(--text); }
-  .brand span { color: var(--accent); }
-  nav a { color: var(--muted); margin-left: 22px; font-size: 14px; }
-  nav a:hover { color: var(--text); text-decoration: none; }
-
-  .hero { padding: 56px 0 28px; text-align: center; }
-  .wordmark { display: block; margin: 0 auto 8px; max-width: 560px; width: 100%; }
-  .tagline { font-size: 21px; color: var(--text); margin: 18px auto 8px; max-width: 640px; }
-  .sub { color: var(--muted); max-width: 620px; margin: 0 auto 28px; }
-  .cta { display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-  .btn { display: inline-block; padding: 10px 22px; border-radius: 8px; font-weight: 600;
-    font-size: 15px; }
-  .btn-primary { background: var(--accent); color: #14060f; }
-  .btn-primary:hover { text-decoration: none; filter: brightness(1.1); }
-  .btn-ghost { border: 1px solid var(--border); color: var(--text); }
-  .btn-ghost:hover { text-decoration: none; border-color: var(--muted); }
-  .install { margin: 26px auto 0; max-width: 560px; background: var(--panel);
-    border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px;
-    font-size: 14px; text-align: left; overflow-x: auto; white-space: nowrap; }
-  .install .p { color: var(--green); user-select: none; }
-
-  .demo { margin: 48px auto 0; max-width: 760px; background: var(--panel);
-    border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
-    text-align: left; }
-  .demo .bar { display: flex; gap: 6px; padding: 10px 14px; background: var(--panel-2);
+  /* ── nav ─────────────────────────────────────────────────────────── */
+  header.site { position: sticky; top: 0; z-index: 10;
+    background: rgba(7,7,8,.82); backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--border); }
-  .demo .dot { width: 11px; height: 11px; border-radius: 50%; background: #30363d; }
-  .demo .dot:first-child { background: #f85149; }
-  .demo .dot:nth-child(2) { background: #d29922; }
-  .demo .dot:nth-child(3) { background: var(--green); }
-  .demo pre { margin: 0; padding: 18px 20px; font-size: 13.5px; line-height: 1.55;
-    overflow-x: auto; }
-  .demo .c { color: var(--muted); }
-  .demo .a { color: var(--accent); }
-  .demo .g { color: var(--green); }
+  header.site .row { display: flex; align-items: center; justify-content: space-between;
+    height: 58px; }
+  .brand { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700;
+    font-size: 17px; letter-spacing: 4px; color: var(--gold); }
+  .brand b { color: var(--orange); }
+  .brand .by { color: var(--dim); font-weight: 400; letter-spacing: 0;
+    font-size: 12px; margin-left: 10px; }
+  nav { display: flex; align-items: center; gap: 22px; }
+  nav a { color: var(--muted); font-size: 14px; }
+  nav a:hover { color: var(--text); text-decoration: none; }
+  nav a.gh { border: 1px solid var(--border); border-radius: 8px; padding: 6px 14px;
+    color: var(--text); }
+  nav a.gh:hover { border-color: var(--orange); }
+  @media (max-width: 640px) { nav a:not(.gh) { display: none; } }
 
-  section { padding: 56px 0 8px; }
-  h2 { font-size: 24px; margin: 0 0 10px; }
-  .lead { color: var(--muted); max-width: 640px; margin-bottom: 30px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  /* ── hero ────────────────────────────────────────────────────────── */
+  .hero { position: relative; padding: 72px 0 30px; text-align: center; overflow: hidden; }
+  .hero .glow { position: absolute; inset: -40% -20% auto; height: 130%;
+    background: radial-gradient(ellipse 55% 45% at 50% 20%, rgba(255,149,0,.13), transparent 70%);
+    pointer-events: none; }
+  .pill { display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: 999px; padding: 5px 14px;
+    font-size: 12.5px; color: var(--muted); background: var(--panel); }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .wordmark { display: block; margin: 30px auto 6px; max-width: 620px; width: 100%; }
+  h1.headline { font-size: clamp(26px, 4.5vw, 40px); line-height: 1.2; margin: 18px 0 12px;
+    font-weight: 800; letter-spacing: -.5px; }
+  h1.headline em { font-style: normal;
+    background: linear-gradient(180deg, var(--gold), var(--orange));
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { color: var(--muted); max-width: 660px; margin: 0 auto 30px; font-size: 16.5px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .btn { display: inline-block; padding: 11px 24px; border-radius: 9px; font-weight: 650;
+    font-size: 15px; transition: filter .15s, border-color .15s; }
+  .btn-primary { background: linear-gradient(180deg, var(--gold), var(--orange));
+    color: #241300; }
+  .btn-primary:hover { text-decoration: none; filter: brightness(1.08); }
+  .btn-ghost { border: 1px solid var(--border-hi); color: var(--text); }
+  .btn-ghost:hover { text-decoration: none; border-color: var(--orange); }
+
+  .install { display: flex; align-items: center; gap: 14px; margin: 30px auto 0;
+    max-width: 620px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 11px; padding: 13px 16px; font-size: 14px; text-align: left; }
+  .install code { flex: 1; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+  .install .p { color: var(--orange); user-select: none; }
+  .copy { flex: none; border: 1px solid var(--border-hi); background: var(--panel-2);
+    color: var(--muted); border-radius: 7px; padding: 5px 12px; font-size: 12.5px;
+    cursor: pointer; font-family: inherit; }
+  .copy:hover { color: var(--text); border-color: var(--orange); }
+  .copy.done { color: var(--green); border-color: var(--green); }
+
+  /* ── terminal demo ───────────────────────────────────────────────── */
+  .demo-wrap { padding: 44px 0 0; }
+  .demo-note { text-align: center; color: var(--dim); font-size: 12.5px; margin: 12px 0 0; }
+  .term { max-width: 820px; margin: 0 auto; background: #0a0a0c;
+    border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+    box-shadow: 0 30px 80px -30px rgba(255,149,0,.14), 0 20px 60px -30px rgba(0,0,0,.8);
+    text-align: left; }
+  .term .bar { display: flex; align-items: center; gap: 7px; padding: 11px 15px;
+    background: var(--panel-2); border-bottom: 1px solid var(--border); }
+  .term .dot { width: 11px; height: 11px; border-radius: 50%; background: #2d2d33; }
+  .term .dot.r { background: var(--red); } .term .dot.y { background: var(--yellow); }
+  .term .dot.g { background: var(--green); }
+  .term .title { margin-left: 8px; color: var(--dim); font-size: 12px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .term pre { margin: 0; padding: 20px 22px; font-size: 13.5px; line-height: 1.6;
+    min-height: 335px; overflow-x: auto; }
+  .term .c  { color: var(--muted); }
+  .term .d  { color: var(--dim); }
+  .term .o  { color: var(--orange); }
+  .term .au { color: var(--gold); }
+  .term .g  { color: var(--green); }
+  .term .cursor { display: inline-block; width: 8px; height: 15px;
+    background: var(--orange); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ── sections ────────────────────────────────────────────────────── */
+  section { padding: 84px 0 6px; }
+  .eyebrow { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--orange);
+    font-size: 13px; letter-spacing: 2px; margin: 0 0 10px; }
+  h2 { font-size: clamp(22px, 3vw, 30px); margin: 0 0 12px; letter-spacing: -.4px; }
+  .lead { color: var(--muted); max-width: 680px; margin: 0 0 36px; font-size: 16px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 16px; }
   .card { background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; padding: 20px; }
+    border-radius: 13px; padding: 22px; transition: border-color .15s; }
+  .card:hover { border-color: var(--border-hi); }
+  .card .ic { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--orange);
+    font-size: 15px; margin-bottom: 10px; }
   .card h3 { margin: 0 0 8px; font-size: 16px; }
-  .card h3 .tag { color: var(--accent); margin-right: 8px; }
   .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .card code { background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 5px; padding: 1px 6px; font-size: 12.5px; color: var(--gold); }
 
+  /* ── e2ee ────────────────────────────────────────────────────────── */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; align-items: center; }
+  @media (max-width: 820px) { .split { grid-template-columns: 1fr; } }
+  .split ul { margin: 0; padding: 0; list-style: none; }
+  .split li { padding: 9px 0 9px 30px; position: relative; color: var(--muted);
+    font-size: 15px; }
+  .split li::before { content: "✓"; position: absolute; left: 0; top: 8px;
+    color: var(--green); font-weight: 700; }
+  .split li b { color: var(--text); font-weight: 600; }
   pre.block { background: var(--panel); border: 1px solid var(--border);
-    border-radius: 10px; padding: 16px 18px; font-size: 13.5px; overflow-x: auto; }
-  pre.block .c { color: var(--muted); }
+    border-radius: 12px; padding: 18px 20px; font-size: 13px; line-height: 1.65;
+    overflow-x: auto; margin: 0; }
+  pre.block .c { color: var(--dim); }
+  pre.block .o { color: var(--orange); }
+  pre.block .au { color: var(--gold); }
+  pre.block .g { color: var(--green); }
 
-  footer { margin-top: 64px; padding: 26px 0 40px; border-top: 1px solid var(--border);
-    color: var(--muted); font-size: 14px; display: flex; justify-content: space-between;
-    flex-wrap: wrap; gap: 10px; }
+  /* ── quickstart ──────────────────────────────────────────────────── */
+  .steps { display: grid; gap: 14px; counter-reset: step; }
+  .step { display: grid; grid-template-columns: 44px 1fr; gap: 18px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 13px;
+    padding: 20px 22px; }
+  .step .n { counter-increment: step; font-family: ui-monospace, Menlo, Consolas, monospace;
+    color: var(--burnt); font-size: 24px; font-weight: 700; }
+  .step .n::before { content: "0" counter(step); }
+  .step h3 { margin: 0 0 6px; font-size: 15.5px; }
+  .step p { margin: 0 0 10px; color: var(--muted); font-size: 14px; }
+  .step pre { margin: 0; background: #0a0a0c; border: 1px solid var(--border);
+    border-radius: 9px; padding: 12px 15px; font-size: 13px; overflow-x: auto; }
+  .step .c { color: var(--dim); }
+
+  /* ── footer ──────────────────────────────────────────────────────── */
+  .bottom-cta { text-align: center; padding: 90px 0 30px; }
+  .bottom-cta h2 { margin-bottom: 22px; }
+  footer { margin-top: 70px; border-top: 1px solid var(--border);
+    padding: 30px 0 44px; color: var(--dim); font-size: 13.5px; }
+  footer .row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  footer a { color: var(--muted); }
+  footer a:hover { color: var(--orange); }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .term .cursor { animation: none; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
 
 <header class="site">
-  <div class="brand">COTT<span>Y</span></div>
-  <nav>
-    <a href="#features">Features</a>
-    <a href="#quickstart">Quick start</a>
-    <a href="https://github.com/tylerbroqs/cotty">GitHub</a>
-  </nav>
+  <div class="wrap row">
+    <div class="brand">COTT<b>Y</b><span class="by">by Orlix</span></div>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#security">Security</a>
+      <a href="#quickstart">Quick start</a>
+      <a class="gh" href="https://github.com/tylerbroqs/cotty">GitHub&nbsp;→</a>
+    </nav>
+  </div>
 </header>
 
 <div class="hero">
-  <svg class="wordmark" viewBox="0 0 640 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="COTTY">
-    <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="20" font-weight="bold">
-      <text x="48" y="34"  xml:space="preserve"><tspan fill="#f0f6fc"> ██████╗ ██████╗ ████████╗████████╗</tspan><tspan fill="#ff4fd8">██╗   ██╗</tspan></text>
-      <text x="48" y="56"  xml:space="preserve"><tspan fill="#f0f6fc">██╔════╝██╔═══██╗╚══██╔══╝╚══██╔══╝</tspan><tspan fill="#ff4fd8">╚██╗ ██╔╝</tspan></text>
-      <text x="48" y="78"  xml:space="preserve"><tspan fill="#f0f6fc">██║     ██║   ██║   ██║      ██║   </tspan><tspan fill="#ff4fd8"> ╚████╔╝ </tspan></text>
-      <text x="48" y="100" xml:space="preserve"><tspan fill="#f0f6fc">██║     ██║   ██║   ██║      ██║   </tspan><tspan fill="#ff4fd8">  ╚██╔╝  </tspan></text>
-      <text x="48" y="122" xml:space="preserve"><tspan fill="#f0f6fc">╚██████╗╚██████╔╝   ██║      ██║   </tspan><tspan fill="#ff4fd8">   ██║   </tspan></text>
-      <text x="48" y="144" xml:space="preserve"><tspan fill="#f0f6fc"> ╚═════╝ ╚═════╝    ╚═╝      ╚═╝   </tspan><tspan fill="#ff4fd8">   ╚═╝   </tspan></text>
-    </g>
-  </svg>
-  <p class="tagline">The multiplayer terminal.</p>
-  <p class="sub">Host your shell. Teammates join from a terminal or a browser —
-    watch together, and type together when you let them. End-to-end encrypted,
-    one binary, open source.</p>
-  <div class="cta">
-    <a class="btn btn-primary" href="https://github.com/tylerbroqs/cotty">Get Cotty on GitHub</a>
-    <a class="btn btn-ghost" href="#quickstart">Quick start</a>
+  <div class="glow"></div>
+  <div class="wrap">
+    <span class="pill"><span class="dot"></span>Open source · MIT · one Go binary</span>
+
+    <svg class="wordmark" viewBox="0 0 640 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="COTTY">
+      <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="20" font-weight="bold">
+        <text x="50" y="26"  xml:space="preserve"><tspan fill="#ffd75f"> ██████</tspan><tspan fill="#a85400">╗  </tspan><tspan fill="#ffd75f">██████</tspan><tspan fill="#a85400">╗ </tspan><tspan fill="#ffd75f">████████</tspan><tspan fill="#a85400">╗</tspan><tspan fill="#ffd75f">████████</tspan><tspan fill="#a85400">╗</tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">╗   </tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">╗</tspan></text>
+        <text x="50" y="48"  xml:space="preserve"><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">╔════╝ </tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">╔═══</tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">╗╚══</tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">╔══╝╚══</tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">╔══╝╚</tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">╗ </tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">╔╝</tspan></text>
+        <text x="50" y="70"  xml:space="preserve"><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">║      </tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">║   </tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">║   </tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">║      </tspan><tspan fill="#ffd75f">██</tspan><tspan fill="#a85400">║    ╚</tspan><tspan fill="#ffd75f">████</tspan><tspan fill="#a85400">╔╝ </tspan></text>
+        <text x="50" y="92"  xml:space="preserve"><tspan fill="#ff9500">██</tspan><tspan fill="#a85400">║      </tspan><tspan fill="#ff9500">██</tspan><tspan fill="#a85400">║   </tspan><tspan fill="#ff9500">██</tspan><tspan fill="#a85400">║   </tspan><tspan fill="#ff9500">██</tspan><tspan fill="#a85400">║      </tspan><tspan fill="#ff9500">██</tspan><tspan fill="#a85400">║     ╚</tspan><tspan fill="#ff9500">██</tspan><tspan fill="#a85400">╔╝  </tspan></text>
+        <text x="50" y="114" xml:space="preserve"><tspan fill="#a85400">╚</tspan><tspan fill="#ff9500">██████</tspan><tspan fill="#a85400">╗ ╚</tspan><tspan fill="#ff9500">██████</tspan><tspan fill="#a85400">╔╝   </tspan><tspan fill="#ff9500">██</tspan><tspan fill="#a85400">║      </tspan><tspan fill="#ff9500">██</tspan><tspan fill="#a85400">║      </tspan><tspan fill="#ff9500">██</tspan><tspan fill="#a85400">║   </tspan></text>
+        <text x="50" y="136" xml:space="preserve"><tspan fill="#a85400"> ╚═════╝  ╚═════╝    ╚═╝      ╚═╝      ╚═╝   </tspan></text>
+      </g>
+    </svg>
+
+    <h1 class="headline">Your shell. Your guests. <em>Your rules.</em></h1>
+    <p class="sub">Cotty is the multiplayer terminal: host your shell, teammates
+      join from a terminal or a browser — watch together, and type together
+      when you allow it. End-to-end encrypted, with per-guest permissions and
+      a "who typed what" audit trail.</p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/tylerbroqs/cotty">Get Cotty on GitHub</a>
+      <a class="btn btn-ghost" href="#quickstart">Quick start</a>
+    </div>
+
+    <div class="install mono">
+      <code id="install-cmd"><span class="p">$</span> go install github.com/tylerbroqs/cotty/cmd/cotty@latest</code>
+      <button class="copy" id="copy-btn" type="button">Copy</button>
+    </div>
   </div>
-  <div class="install mono"><span class="p">$</span> go install github.com/tylerbroqs/cotty/cmd/cotty@latest</div>
 
-  <div class="demo mono">
-    <div class="bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
-    <pre>
-<span class="p g">$</span> cotty host --relay relay.example.com:7374
-<span class="c">cotty: hosting /bin/zsh via relay relay.example.com:7374 (end-to-end encrypted)</span>
-<span class="c">cotty: session code </span><span class="a">XJ4K2P</span>
-<span class="c">cotty: guests join with: cotty join "ws://relay.example.com:7374/ws?code=XJ4K2P#k=8D0Uy…"</span>
-<span class="c">cotty: or in a browser: http://relay.example.com:7374/join#code=XJ4K2P&amp;k=8D0Uy…</span>
-
-<span class="c">cotty: </span><span class="a">alice</span><span class="c"> joined (1 connected)</span>
-<span class="p g">$</span> cotty ctl allow alice
-<span class="g">alice can now type</span></pre>
+  <div class="wrap demo-wrap">
+    <div class="term mono">
+      <div class="bar">
+        <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+        <div class="title">cotty host — end-to-end encrypted</div>
+      </div>
+      <pre id="replay" aria-label="A scripted replay of a real Cotty session"></pre>
+    </div>
+    <p class="demo-note">A scripted replay of a real Cotty session.</p>
   </div>
 </div>
 
 <section id="features">
-  <h2>Built for working together in a shell</h2>
-  <p class="lead">Not screen sharing. A real shared session with permissions,
-    presence, and encryption — the things pair debugging and incident
-    response actually need.</p>
-  <div class="grid">
-    <div class="card">
-      <h3><span class="tag">##</span>Multiplayer, not a movie</h3>
-      <p>Guests connect to the live PTY. When you grant them write access,
-        their keystrokes land in the same shell — no lag-smeared video of
-        your terminal.</p>
+  <div class="wrap">
+    <p class="eyebrow">## features</p>
+    <h2>Not screen sharing. A shared session.</h2>
+    <p class="lead">Guests connect to the live PTY — the things pair debugging
+      and incident response actually need, none of the video blur.</p>
+    <div class="grid">
+      <div class="card">
+        <div class="ic">&gt;_</div>
+        <h3>Multiplayer, not a movie</h3>
+        <p>Guests attach to the live terminal. Grant write access and their
+          keystrokes land in the same shell — no lag-smeared pixels.</p>
+      </div>
+      <div class="card">
+        <div class="ic">🔒</div>
+        <h3>End-to-end encrypted</h3>
+        <p>Relayed sessions are sealed with AES-256-GCM by default. The key
+          rides in the URL fragment — it never touches the wire, and the relay
+          only ever sees ciphertext.</p>
+      </div>
+      <div class="card">
+        <div class="ic">⇄</div>
+        <h3>Works behind NAT</h3>
+        <p>The host dials <i>out</i> to a relay you can self-host with one
+          command. No port forwarding, no firewall tickets, no daemons.</p>
+      </div>
+      <div class="card">
+        <div class="ic">🌐</div>
+        <h3>Join from a browser</h3>
+        <p>Every relay serves an embedded xterm.js client, decryption included
+          via WebCrypto. Send a link — teammates install nothing.</p>
+      </div>
+      <div class="card">
+        <div class="ic">✋</div>
+        <h3>Per-guest permissions</h3>
+        <p>Everyone joins view-only with a name. <code>cotty ctl allow alice</code>,
+          <code>deny</code>, <code>kick</code> — live, from any terminal on the
+          host machine.</p>
+      </div>
+      <div class="card">
+        <div class="ic">☰</div>
+        <h3>Audit trail &amp; recording</h3>
+        <p>Every applied keystroke attributed by participant, plus joins and
+          permission changes. Record sessions as asciicast v2 and replay them
+          with <code>cotty replay</code> or asciinema.</p>
+      </div>
     </div>
-    <div class="card">
-      <h3><span class="tag">##</span>End-to-end encrypted</h3>
-      <p>Relayed sessions are sealed with AES-256-GCM by default. The key
-        travels in the URL fragment, which never touches the wire — the
-        relay forwards ciphertext it cannot read.</p>
-    </div>
-    <div class="card">
-      <h3><span class="tag">##</span>Works behind NAT</h3>
-      <p>The host dials out to a relay you can self-host with one command.
-        No port forwarding, no firewall tickets, no agent daemons.</p>
-    </div>
-    <div class="card">
-      <h3><span class="tag">##</span>Join from a browser</h3>
-      <p>Every relay serves an embedded xterm.js client — decryption included,
-        via WebCrypto. Send a link; teammates need nothing installed.</p>
-    </div>
-    <div class="card">
-      <h3><span class="tag">##</span>Per-guest permissions</h3>
-      <p>Everyone joins view-only with a name. <code>cotty ctl allow alice</code>,
-        <code>deny</code>, <code>kick</code> — live, from any terminal on the
-        host, even inside the session itself.</p>
-    </div>
-    <div class="card">
-      <h3><span class="tag">##</span>One small binary</h3>
-      <p>Host, client, relay, and web UI in a single Go binary with no runtime
-        dependencies. MIT licensed, no telemetry, no accounts.</p>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap">
+    <p class="eyebrow">## security</p>
+    <h2>The relay can't read your session.</h2>
+    <div class="split">
+      <ul>
+        <li><b>AES-256-GCM by default</b> for every relayed session — opt out,
+          never opt in.</li>
+        <li><b>The key never touches the network.</b> It lives in the URL
+          fragment, which clients strip before any request is made.</li>
+        <li><b>Wrong key fails loudly</b> — a guest without the key is refused
+          with an explanation, not shown garbage.</li>
+        <li><b>No accounts, no telemetry.</b> Sessions are protected by a
+          random join code; everything runs on machines you control.</li>
+      </ul>
+      <pre class="block mono"><span class="c"># the host prints a join URL —</span>
+<span class="c"># the key stays after the #, off the wire</span>
+
+cotty join "wss://relay/ws?code=<span class="au">XJ4K2P</span><span class="o">#k=8D0Uy…</span>"
+                                <span class="c">└──────────┘</span>
+                          <span class="c">never sent anywhere</span>
+
+<span class="c"># what the relay sees:</span>
+<span class="d">4f 8a 2c e1 9b …  (ciphertext)</span></pre>
     </div>
   </div>
 </section>
 
 <section id="quickstart">
-  <h2>Quick start</h2>
-  <p class="lead">Share a shell on your LAN in ten seconds, or across the
-    internet with a relay.</p>
-  <pre class="block mono"><span class="c"># install</span>
-go install github.com/tylerbroqs/cotty/cmd/cotty@latest
-
-<span class="c"># share your shell (guests are view-only by default)</span>
-cotty host
-
-<span class="c"># a teammate joins from their terminal…</span>
-cotty join -name alice "ws://192.168.1.10:7373/ws?code=XJ4K2P"
-
-<span class="c"># …or from a browser, no install needed</span>
-http://192.168.1.10:7373/join#code=XJ4K2P
-
-<span class="c"># let alice type; kick bob</span>
-cotty ctl allow alice
-cotty ctl kick bob</pre>
+  <div class="wrap">
+    <p class="eyebrow">## quick start</p>
+    <h2>Sharing a shell in under a minute.</h2>
+    <p class="lead">On your LAN in ten seconds — or across the internet with a
+      relay you host yourself.</p>
+    <div class="steps mono">
+      <div class="step">
+        <div class="n"></div>
+        <div>
+          <h3>Install</h3>
+          <p>One static binary — host, client, relay, and web UI included.</p>
+          <pre>go install github.com/tylerbroqs/cotty/cmd/cotty@latest</pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n"></div>
+        <div>
+          <h3>Host your shell</h3>
+          <p>Guests are view-only by default. Cotty prints the join links.</p>
+          <pre>cotty host                  <span class="c"># on your LAN</span>
+cotty host --relay relay.example.com:7374   <span class="c"># behind NAT, E2EE</span></pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n"></div>
+        <div>
+          <h3>Teammates join</h3>
+          <p>From any terminal — or from a browser, nothing to install.</p>
+          <pre>cotty join -name alice "wss://relay/ws?code=XJ4K2P#k=…"</pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n"></div>
+        <div>
+          <h3>Stay in control</h3>
+          <p>Grant, revoke, and kick — live, without ending the session.</p>
+          <pre>cotty ctl allow alice   <span class="c"># let alice type</span>
+cotty ctl kick bob      <span class="c"># bye, bob</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>
 
+<div class="bottom-cta wrap">
+  <p class="eyebrow">## get started</p>
+  <h2>Stop screen-sharing your terminal.</h2>
+  <div class="cta">
+    <a class="btn btn-primary" href="https://github.com/tylerbroqs/cotty">View on GitHub</a>
+    <a class="btn btn-ghost" href="https://github.com/tylerbroqs/cotty#quick-start">Read the docs</a>
+  </div>
+</div>
+
 <footer>
-  <div>MIT licensed. Built in the open.</div>
-  <div><a href="https://github.com/tylerbroqs/cotty">github.com/tylerbroqs/cotty</a></div>
+  <div class="wrap row">
+    <div>© Orlix — MIT licensed. Built in the open.</div>
+    <div>
+      <a href="https://github.com/tylerbroqs/cotty">GitHub</a> ·
+      <a href="https://github.com/tylerbroqs/cotty/blob/main/LICENSE">License</a> ·
+      <a href="https://orlixai.xyz">orlixai.xyz</a>
+    </div>
+  </div>
 </footer>
 
-</div>
+<script>
+// Copy-to-clipboard for the install command.
+(function () {
+  var btn = document.getElementById('copy-btn');
+  btn.addEventListener('click', function () {
+    navigator.clipboard.writeText('go install github.com/tylerbroqs/cotty/cmd/cotty@latest')
+      .then(function () {
+        btn.textContent = 'Copied!';
+        btn.classList.add('done');
+        setTimeout(function () {
+          btn.textContent = 'Copy';
+          btn.classList.remove('done');
+        }, 1600);
+      });
+  });
+})();
+
+// Scripted replay of a Cotty session: lines type in when the terminal
+// scrolls into view, then the loop restarts. Reduced motion renders the
+// whole transcript immediately.
+(function () {
+  var pre = document.getElementById('replay');
+  var script = [
+    { t: '$ ',  c: 'g',  pause: 400 },
+    { t: 'cotty host --relay relay.example.com:7374', type: true, pause: 350 },
+    { t: '\ncotty: hosting /bin/zsh via relay relay.example.com:7374 (end-to-end encrypted)', c: 'c', pause: 120 },
+    { t: '\ncotty: session code ', c: 'c' },
+    { t: 'XJ4K2P', c: 'au', pause: 120 },
+    { t: '\ncotty: guests join with: cotty join "wss://relay.example.com/ws?code=XJ4K2P', c: 'c' },
+    { t: '#k=8D0Uy…', c: 'o' },
+    { t: '"', c: 'c', pause: 120 },
+    { t: '\ncotty: or in a browser: https://relay.example.com/join', c: 'c' },
+    { t: '#code=XJ4K2P&k=8D0Uy…', c: 'o', pause: 900 },
+    { t: '\n\ncotty: ', c: 'c' },
+    { t: 'alice', c: 'au' },
+    { t: ' joined (1 connected)', c: 'c', pause: 800 },
+    { t: '\n\n$ ', c: 'g', pause: 300 },
+    { t: 'cotty ctl allow alice', type: true, pause: 250 },
+    { t: '\nalice can now type', c: 'g', pause: 900 },
+    { t: '\n\ncotty: ', c: 'c' },
+    { t: 'alice', c: 'au' },
+    { t: ' is typing…', c: 'c', pause: 700 },
+    { t: '\n', pause: 100 },
+    { t: 'alice$ ', c: 'au', pause: 250 },
+    { t: 'tail -f /var/log/app.log', type: true },
+    { t: '   # alice’s keys, your shell', c: 'd', pause: 2600 }
+  ];
+
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function span(cls) {
+    var s = document.createElement('span');
+    if (cls) s.className = cls;
+    return s;
+  }
+
+  function renderAll() {
+    pre.textContent = '';
+    script.forEach(function (step) {
+      var s = span(step.c);
+      s.textContent = step.t;
+      pre.appendChild(s);
+    });
+  }
+
+  if (reduced) { renderAll(); return; }
+
+  var cursor = span('cursor');
+  var timer = null;
+
+  function play() {
+    pre.textContent = '';
+    pre.appendChild(cursor);
+    var i = 0;
+    function nextStep() {
+      if (i >= script.length) { timer = setTimeout(play, 3500); return; }
+      var step = script[i++];
+      var s = span(step.c);
+      pre.insertBefore(s, cursor);
+      if (step.type) {
+        var j = 0;
+        (function typeChar() {
+          s.textContent = step.t.slice(0, ++j);
+          if (j < step.t.length) { timer = setTimeout(typeChar, 34); }
+          else { timer = setTimeout(nextStep, step.pause || 60); }
+        })();
+      } else {
+        s.textContent = step.t;
+        timer = setTimeout(nextStep, step.pause || 60);
+      }
+    }
+    nextStep();
+  }
+
+  var started = false;
+  var io = new IntersectionObserver(function (entries) {
+    if (started || !entries.some(function (e) { return e.isIntersecting; })) return;
+    started = true;
+    io.disconnect();
+    play();
+  }, { threshold: 0.35 });
+  io.observe(pre);
+})();
+</script>
+
 </body>
 </html>
