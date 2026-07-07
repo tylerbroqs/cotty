@@ -153,9 +153,9 @@ func Run(rawURL, name string) error {
 			}
 			fmt.Fprintf(os.Stderr, "\r\ncotty: your connection is now %s\r\n", mode)
 		case protocol.TypeResize:
-			// v0 guests don't resize their terminal; a size mismatch just
-			// means wrapped output. The web client (roadmap) will handle
-			// this properly.
+			// CLI guests don't resize their terminal; a size mismatch just
+			// means wrapped output. The web client resizes its terminal to
+			// the host's size.
 		}
 	}
 }

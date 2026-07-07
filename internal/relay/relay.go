@@ -5,8 +5,10 @@
 // The relay owns each relayed session's guest registry and executes the
 // host's control commands (list/allow/deny/kick) against it.
 //
-// The relay only forwards frames — but it can read them. End-to-end
-// encryption (relay sees ciphertext only) is on the roadmap for v0.4.
+// The relay only forwards frames. Sessions are end-to-end encrypted by
+// default (see internal/e2ee), so terminal output and guest input pass
+// through as ciphertext the relay cannot read; only routing metadata
+// (codes, names, sizes) is visible to it.
 package relay
 
 import (

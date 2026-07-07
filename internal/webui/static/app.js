@@ -71,7 +71,7 @@
     const term = new Terminal({
       fontSize: 14,
       scrollback: 5000,
-      theme: { background: '#101418', foreground: '#f0f6fc', cursor: '#ff4fd8' },
+      theme: { background: '#101418', foreground: '#f0f6fc', cursor: '#ff9500' },
     });
     const fit = new FitAddon.FitAddon();
     term.loadAddon(fit);
