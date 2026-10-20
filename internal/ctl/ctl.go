@@ -1,7 +1,7 @@
 // Package ctl is the control channel for a running `cotty host`: a unix
 // socket next to the session that `cotty ctl` connects to for guest
-// management (list/allow/deny/kick). One JSON request and one JSON reply
-// per connection.
+// management (list/allow/deny/kick) and questions for the session's
+// agents (ask). One JSON request and one JSON reply per connection.
 package ctl
 
 import (
@@ -15,14 +15,19 @@ import (
 	"time"
 )
 
-const callTimeout = 15 * time.Second
+const (
+	callTimeout = 15 * time.Second
+	// askTimeout bounds `cotty ask`, which waits for an agent's answer.
+	askTimeout = 2 * time.Minute
+)
 
-// Handler executes one control command.
-type Handler func(op, name string) (string, error)
+// Handler executes one control command. text is set for "ask".
+type Handler func(op, name, text string) (string, error)
 
 type request struct {
 	Op   string `json:"op"`
 	Name string `json:"name,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 type response struct {
@@ -77,7 +82,10 @@ func handle(conn net.Conn, h Handler) {
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
 		return
 	}
-	text, err := h(req.Op, req.Name)
+	if req.Op == "ask" {
+		conn.SetDeadline(time.Now().Add(askTimeout))
+	}
+	text, err := h(req.Op, req.Name, req.Text)
 	resp := response{Ok: err == nil, Text: text}
 	if err != nil {
 		resp.Text = err.Error()
@@ -93,14 +101,28 @@ func (s *Server) Close() error {
 
 // Call sends one command to the control socket at path.
 func Call(path, op, name string) (string, error) {
+	return call(path, request{Op: op, Name: name})
+}
+
+// Ask sends a question for the session's agents to the control socket at
+// path.
+func Ask(path, text string) (string, error) {
+	return call(path, request{Op: "ask", Text: text})
+}
+
+func call(path string, req request) (string, error) {
 	conn, err := net.DialTimeout("unix", path, callTimeout)
 	if err != nil {
 		return "", fmt.Errorf("no cotty session at %s (is the host still running?)", path)
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(callTimeout))
+	timeout := callTimeout
+	if req.Op == "ask" {
+		timeout = askTimeout
+	}
+	conn.SetDeadline(time.Now().Add(timeout))
 
-	if err := json.NewEncoder(conn).Encode(request{Op: op, Name: name}); err != nil {
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return "", err
 	}
 	var resp response

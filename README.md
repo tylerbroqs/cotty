@@ -54,6 +54,9 @@ permissions, presence, accountability, and end-to-end encryption.
 - **Market desk** — `cotty desk` is a read-only Robinhood Chain dashboard
   (Stock Token quotes, Chainlink feeds, session gaps, Lighter perp basis
   and funding) to watch together
+- **AI agent** — `cotty agent` brings a model into the session as a
+  guest: it reads the shared screen and answers `cotty ask`, view-only
+  until you `cotty ctl allow agent`, every keystroke in the audit trail
 
 ## Install
 
@@ -250,6 +253,76 @@ rate limited with no SLA; pass `-rpc` to use a provider endpoint.
 Exchange holidays are not modeled. Stock Tokens are not available to US
 persons and are restricted in other jurisdictions; the desk only reads
 public data.
+
+### AI agent: an agent on a leash
+
+`cotty agent` joins a session as an ordinary guest named `agent`, backed
+by the model of your choice. It reads the shared screen and answers
+questions anyone asks from inside the hosted shell:
+
+```sh
+cotty host -relay relay.example.com:7374 -audit trail.jsonl
+
+# anywhere, with the join URL the host printed:
+export ANTHROPIC_API_KEY=...
+cotty agent "ws://relay.example.com:7374/ws?code=XJ4K2P#k=..."
+
+# inside the hosted shell:
+cotty ask "why is TSLA flagged on the desk?"
+agent: TSLA's quote is 2% above its last regular-session price ...
+```
+
+The answer is printed by `cotty ask` itself, inside the shell, so every
+participant sees it (browser guests too) and it lands in recordings.
+
+Like any guest, the agent starts **view-only**: it explains what it would
+run but cannot type. Grant it the keyboard and take it back the same way
+as for people:
+
+```sh
+cotty ctl allow agent    # it may now type commands into the shell
+cotty ask "add NVDA and COIN to the desk"
+agent: restarting the desk with NVDA and COIN
+cotty ctl deny agent     # view-only again
+cotty ctl kick agent     # gone
+```
+
+Once allowed, it types one command line at a time, reads the result, and
+reports back (up to `-steps` model calls per question). Everyone watches
+it happen, and the audit trail attributes its keystrokes:
+`{"kind":"input","who":"agent","data":"cotty desk -symbols NVDA,COIN\r"}`.
+Questions and answers are logged too (`ask`, `say`).
+
+Pick any model:
+
+```sh
+cotty agent URL                                    # Anthropic, claude-opus-5-5
+cotty agent -model claude-sonnet-5-5 URL           # another Claude model
+cotty agent -provider openai -model gpt-5 URL      # OpenAI (OPENAI_API_KEY)
+cotty agent -provider openai -model llama3.3 \
+  -base-url http://localhost:11434/v1 URL          # Ollama, no key needed
+cotty agent -provider openai -model some/model \
+  -base-url https://openrouter.ai/api/v1 -key-env OPENROUTER_API_KEY URL
+```
+
+`-provider openai` speaks the OpenAI chat-completions format, so it covers
+any compatible endpoint (OpenRouter, Groq, Together, Ollama, LM Studio,
+vLLM, ...).
+
+What to know before you invite one:
+
+- **The screen leaves the session.** Questions and screen snapshots go to
+  the model provider you chose. End-to-end encryption keeps the relay
+  out; it does not keep out a participant you invited, and the agent is
+  one. Use a local model if the session must stay on your machines.
+- **It is view-only until you say otherwise.** An allowed agent can type
+  anything you could. Allow it for a task, watch it, and deny it after.
+- **Text on screen is not an instruction.** The agent is told to treat the
+  screen as data, but models can be fooled by output crafted to look like
+  instructions (prompt injection). Another reason to keep it view-only
+  around untrusted output.
+- Commands are limited to one printable line per step; it cannot send
+  other control keys except Ctrl-C to stop a running program.
 
 ## How it works
 

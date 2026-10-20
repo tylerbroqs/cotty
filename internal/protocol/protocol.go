@@ -22,6 +22,35 @@ func SanitizeText(s string) string {
 	}, s)
 }
 
+// SanitizeLines is SanitizeText for multi-line text (guest lists, agent
+// answers): it keeps line breaks, normalized to \n, and strips every
+// other control character.
+func SanitizeLines(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = SanitizeText(l)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// MaxSayBytes caps the text of one TypeAsk or TypeSay frame.
+const MaxSayBytes = 8 << 10
+
+// FormatSay renders a participant's chat text (sanitized with
+// SanitizeLines) for a raw-mode terminal: the speaker on the first line,
+// continuation lines indented beneath it.
+func FormatSay(who, text string) string {
+	lines := strings.Split(text, "\n")
+	var b strings.Builder
+	b.WriteString("\r\ncotty: " + who + ": " + lines[0] + "\r\n")
+	pad := strings.Repeat(" ", len("cotty: ")+len(who)+2)
+	for _, l := range lines[1:] {
+		b.WriteString(pad + l + "\r\n")
+	}
+	return b.String()
+}
+
 // Version is the protocol version spoken by this build.
 const Version = 0
 
@@ -59,6 +88,15 @@ const (
 	// TypeActivity announces that the guest in Name is typing; sent to
 	// other participants, throttled per guest.
 	TypeActivity MsgType = "activity"
+	// TypeAsk carries a question for the session's agents (`cotty ask`),
+	// from the host to every guest. Data holds the question, sealed like
+	// output in end-to-end encrypted sessions; Name is who asked.
+	TypeAsk MsgType = "ask"
+	// TypeSay carries a participant's chat text, typically an agent's
+	// answer. Guests send it to the host (a relay attributes it with
+	// Name); the host then fans it out to every guest with Name set.
+	// Data holds the text, sealed in end-to-end encrypted sessions.
+	TypeSay MsgType = "say"
 )
 
 // Message is a single frame. Data is base64-encoded by encoding/json.

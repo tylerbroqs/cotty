@@ -172,6 +172,20 @@
         case 'activity':
           if (msg.name) showActivity(msg.name);
           break;
+        case 'say': {
+          // An agent's remarks; its answers to `cotty ask` show up in the
+          // terminal itself.
+          let data = b64Decode(msg.data || '');
+          if (cryptoKey) {
+            try {
+              data = await open(data);
+            } catch {
+              return;
+            }
+          }
+          toast((msg.name || 'agent') + ': ' + new TextDecoder().decode(data));
+          break;
+        }
       }
     }
 

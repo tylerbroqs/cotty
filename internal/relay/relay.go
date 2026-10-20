@@ -151,7 +151,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch msg.Type {
-		case protocol.TypeOutput, protocol.TypeResize, protocol.TypeInfo:
+		case protocol.TypeOutput, protocol.TypeResize, protocol.TypeInfo, protocol.TypeAsk, protocol.TypeSay:
 			sess.guests.Broadcast(msg)
 		case protocol.TypeControl:
 			text, err := sess.guests.Apply(msg.Op, msg.Name)
@@ -212,6 +212,12 @@ func (s *Server) handleGuest(w http.ResponseWriter, r *http.Request) {
 			sess.guests.HandleInput(g, msg.Data, func(who string, data []byte) {
 				sess.host.Send(protocol.Message{Type: protocol.TypeInput, Data: data, Name: who})
 			})
+		case protocol.TypeSay:
+			// Chat isn't input: any guest may talk, view-only or not. The
+			// relay can't read it in encrypted sessions, only attribute it.
+			if len(msg.Data) <= 2*protocol.MaxSayBytes {
+				sess.host.Send(protocol.Message{Type: protocol.TypeSay, Data: msg.Data, Name: g.Name})
+			}
 		default:
 			// Ignore unknown frames for forward compatibility.
 		}

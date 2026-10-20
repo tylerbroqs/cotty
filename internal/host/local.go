@@ -22,10 +22,11 @@ type localTransport struct {
 	server     *http.Server
 	code       string
 	writeInput func(who string, data []byte)
+	onSay      func(who string, data []byte)
 	aud        *audit.Logger
 }
 
-func listenLocal(addr, code string, allowWrite bool, writeInput func(who string, data []byte), aud *audit.Logger) (*localTransport, string, error) {
+func listenLocal(addr, code string, allowWrite bool, writeInput, onSay func(who string, data []byte), aud *audit.Logger) (*localTransport, string, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, "", fmt.Errorf("listening on %s: %w", addr, err)
@@ -35,6 +36,7 @@ func listenLocal(addr, code string, allowWrite bool, writeInput func(who string,
 		guests:     session.NewRegistry(allowWrite),
 		code:       code,
 		writeInput: writeInput,
+		onSay:      onSay,
 		aud:        aud,
 	}
 	mux := http.NewServeMux()
@@ -108,6 +110,8 @@ func (t *localTransport) handleWS(w http.ResponseWriter, r *http.Request) {
 		switch msg.Type {
 		case protocol.TypeInput:
 			t.guests.HandleInput(g, msg.Data, t.writeInput)
+		case protocol.TypeSay:
+			t.onSay(g.Name, msg.Data)
 		default:
 			// Ignore unknown frames so old clients keep working against
 			// newer hosts.

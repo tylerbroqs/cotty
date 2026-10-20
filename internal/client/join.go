@@ -56,21 +56,31 @@ func parseJoinURL(rawURL, name string) (target string, cipher *e2ee.Cipher, err 
 	return u.String(), cipher, nil
 }
 
+// Dial connects to the session at rawURL as name. The returned cipher is
+// non-nil when the URL carries an end-to-end encryption key.
+func Dial(ctx context.Context, rawURL, name string) (*websocket.Conn, *e2ee.Cipher, error) {
+	target, cipher, err := parseJoinURL(rawURL, name)
+	if err != nil {
+		return nil, nil, err
+	}
+	ws, _, err := websocket.Dial(ctx, target, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("connecting to %s: %w", rawURL, err)
+	}
+	ws.SetReadLimit(1 << 20)
+	return ws, cipher, nil
+}
+
 // Run joins the session at rawURL (ws://host:port/ws?code=...) as name and
 // blocks until the session ends or the user presses the escape key.
 func Run(rawURL, name string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	target, cipher, err := parseJoinURL(rawURL, name)
+	ws, cipher, err := Dial(ctx, rawURL, name)
 	if err != nil {
 		return err
 	}
-	ws, _, err := websocket.Dial(ctx, target, nil)
-	if err != nil {
-		return fmt.Errorf("connecting to %s: %w", rawURL, err)
-	}
-	ws.SetReadLimit(1 << 20)
 	defer ws.CloseNow()
 
 	stdinFd := int(os.Stdin.Fd())
@@ -146,6 +156,18 @@ func Run(rawURL, name string) error {
 			fmt.Fprintf(os.Stderr, "cotty: %s (%s)\r\n", protocol.SanitizeText(msg.Text), mode)
 		case protocol.TypeInfo:
 			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", protocol.SanitizeText(msg.Text))
+		case protocol.TypeSay:
+			// Answers to `cotty ask` are printed inside the shell; these
+			// are the agent's other remarks.
+			data := msg.Data
+			if cipher != nil {
+				if data, err = cipher.Open(data); err != nil {
+					continue
+				}
+			}
+			if text := protocol.SanitizeLines(string(data)); text != "" {
+				fmt.Fprint(os.Stderr, protocol.FormatSay(protocol.SanitizeText(msg.Name), text))
+			}
 		case protocol.TypeWritable:
 			mode := "view-only"
 			if msg.Writable {

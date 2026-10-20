@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tylerbroqs/cotty/internal/agent"
 	"github.com/tylerbroqs/cotty/internal/client"
 	"github.com/tylerbroqs/cotty/internal/ctl"
 	"github.com/tylerbroqs/cotty/internal/desk"
@@ -28,6 +29,8 @@ Usage:
   cotty relay [flags]          Run a relay server for NAT-friendly sessions
   cotty replay [flags] <file>  Play back a recorded session
   cotty desk [flags]           Robinhood Chain market dashboard (read-only)
+  cotty agent [flags] <url>    Bring an AI agent into a session as a guest
+  cotty ask <question>         Ask the session's agent (run inside the session)
   cotty version                Print version
 
 Host flags:
@@ -51,6 +54,18 @@ Replay flags:
   -speed float      Playback speed multiplier (default 1)
   -max-idle duration  Cap pauses between events, e.g. 2s (default 2s;
                       0 keeps original timing)
+
+Agent flags (the agent joins view-only; 'cotty ctl allow agent' lets it
+run commands, which everyone sees and the audit trail attributes to it):
+  -name string      Display name (default "agent")
+  -provider string  anthropic (default) or openai, which covers any
+                    OpenAI-compatible endpoint (OpenRouter, Ollama, ...)
+  -model string     Model (default claude-opus-5-5 for anthropic;
+                    required for openai)
+  -base-url string  API endpoint override, e.g. http://localhost:11434/v1
+  -key-env string   Env var holding the API key (default ANTHROPIC_API_KEY
+                    or OPENAI_API_KEY)
+  -steps int        Max model calls per question (default 4)
 
 Desk flags (run it inside 'cotty host' to watch it together):
   -symbols string     Comma-separated watch list, or "all" for every Stock
@@ -199,6 +214,55 @@ func main() {
 			CarryAPR: *carry,
 			NoPerps:  *noPerps,
 		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
+			os.Exit(1)
+		}
+	case "agent":
+		fs := flag.NewFlagSet("agent", flag.ExitOnError)
+		name := fs.String("name", "agent", "display name")
+		provider := fs.String("provider", "anthropic", "anthropic or openai (any OpenAI-compatible endpoint)")
+		model := fs.String("model", "", "model to use")
+		baseURL := fs.String("base-url", "", "API endpoint override")
+		keyEnv := fs.String("key-env", "", "environment variable holding the API key")
+		steps := fs.Int("steps", 4, "max model calls per question")
+		fs.Parse(os.Args[2:])
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "usage: cotty agent [-provider anthropic|openai] [-model M] [-name NAME] <join-url>")
+			os.Exit(2)
+		}
+		err := agent.Run(agent.Options{
+			URL:      fs.Arg(0),
+			Name:     *name,
+			MaxSteps: *steps,
+			ProviderOptions: agent.ProviderOptions{
+				Provider: *provider,
+				Model:    *model,
+				BaseURL:  *baseURL,
+				KeyEnv:   *keyEnv,
+			},
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
+			os.Exit(1)
+		}
+	case "ask":
+		fs := flag.NewFlagSet("ask", flag.ExitOnError)
+		code := fs.String("code", "", "session code to target")
+		fs.Parse(os.Args[2:])
+		question := strings.Join(fs.Args(), " ")
+		if strings.TrimSpace(question) == "" {
+			fmt.Fprintln(os.Stderr, "usage: cotty ask [-code CODE] <question>")
+			os.Exit(2)
+		}
+		path, err := ctl.Discover(*code)
+		if err == nil {
+			var answer string
+			answer, err = ctl.Ask(path, question)
+			if err == nil {
+				fmt.Println(answer)
+			}
+		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
 			os.Exit(1)

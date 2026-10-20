@@ -5,11 +5,13 @@ package host
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/creack/pty"
@@ -120,18 +122,41 @@ func Run(opts Options) error {
 	var (
 		tr      transport
 		joinURL string
+		pending answers
+		limiter sayLimiter
 	)
+	// onSay takes a guest's chat text (an agent's answer, usually): it goes
+	// to the oldest pending `cotty ask`, which prints it inside the shell
+	// for everyone; otherwise it is shown as a notice on every terminal.
+	onSay := func(who string, data []byte) {
+		if len(data) > protocol.MaxSayBytes {
+			data = data[:protocol.MaxSayBytes]
+		}
+		text := strings.TrimSpace(protocol.SanitizeLines(string(data)))
+		if text == "" || tr == nil || !limiter.allow(who) {
+			return
+		}
+		aud.Event("say", who, text)
+		if pending.deliver(who + ": " + text) {
+			return
+		}
+		fmt.Fprint(os.Stderr, protocol.FormatSay(who, text))
+		tr.broadcast(protocol.Message{Type: protocol.TypeSay, Name: who, Data: []byte(text)})
+	}
 	if opts.Relay != "" {
-		tr, joinURL, err = dialRelay(opts.Relay, code, opts.AllowWrite, !opts.Plain, writeInput, aud)
+		tr, joinURL, err = dialRelay(opts.Relay, code, opts.AllowWrite, !opts.Plain, writeInput, onSay, aud)
 	} else {
-		tr, joinURL, err = listenLocal(opts.Addr, code, opts.AllowWrite, writeInput, aud)
+		tr, joinURL, err = listenLocal(opts.Addr, code, opts.AllowWrite, writeInput, onSay, aud)
 	}
 	if err != nil {
 		return err
 	}
 	defer tr.close()
 
-	ctlSrv, err := ctl.Serve(ctl.SocketPath(code), func(op, name string) (string, error) {
+	ctlSrv, err := ctl.Serve(ctl.SocketPath(code), func(op, name, text string) (string, error) {
+		if op == "ask" {
+			return ask(tr, &pending, aud, text)
+		}
 		text, cerr := tr.control(op, name)
 		if cerr == nil && op != "list" {
 			aud.Event(op, name, text)
@@ -249,6 +274,21 @@ func Run(opts Options) error {
 	cmd.Wait()
 	fmt.Fprintf(os.Stderr, "\r\ncotty: session ended\r\n")
 	return nil
+}
+
+// ask sends a question to every guest (agents answer, people ignore it)
+// and waits for the first answer.
+func ask(tr transport, pending *answers, aud *audit.Logger, question string) (string, error) {
+	question = strings.TrimSpace(protocol.SanitizeLines(question))
+	if question == "" {
+		return "", errors.New("usage: cotty ask QUESTION")
+	}
+	if len(question) > protocol.MaxSayBytes {
+		return "", fmt.Errorf("question too long (max %d bytes)", protocol.MaxSayBytes)
+	}
+	aud.Event("ask", "host", question)
+	tr.broadcast(protocol.Message{Type: protocol.TypeAsk, Name: "host", Data: []byte(question)})
+	return pending.wait()
 }
 
 // browserJoinURL converts a websocket join URL into the equivalent link
