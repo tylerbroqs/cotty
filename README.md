@@ -52,7 +52,8 @@ permissions, presence, accountability, and end-to-end encryption.
 - **Live presence** — everyone sees who joins, leaves, and is typing
 - **Session codes** — every session is protected by a random join code
 - **Market desk** — `cotty desk` is a read-only Robinhood Chain dashboard
-  (Stock Token quotes, Chainlink feeds, session gaps) to watch together
+  (Stock Token quotes, Chainlink feeds, session gaps, Lighter perp basis
+  and funding) to watch together
 
 ## Install
 
@@ -223,6 +224,26 @@ NVDA        216.62      216.66   0.02%      217.07   -0.20%     8h17m   +0.06%  
 - **FLAGS** — `HALT`, `ORACLE-PAUSED` (corporate action in progress),
   `STALE` (feed older than its heartbeat while its market is open), and
   the corporate-action multiplier when it isn't 1
+
+Below the table, a **Lighter** section lines each watched symbol up
+against its perpetual on [Lighter](https://lighter.xyz), the perps venue
+that launched with Robinhood Chain, read from Lighter's public API:
+
+```
+LIGHTER   PERP MARK        SPOT    BASIS  FUNDING/8H      APR  CARRY
+NVDA        216.63      216.55   +0.04%    +0.0032%   +3.50%  longs pay: long spot + short perp collects  (1 token = 1.0008 perp)
+ETH       2,387.19    2,383.52   +0.15%    -0.0096%  -10.51%  shorts pay: long perp collects
+```
+
+- **SPOT** is per *share*: stock perps track the underlying, while a
+  Stock Token is worth `multiplier` shares, so the token price is divided
+  by its on-chain multiplier first (crypto uses its Chainlink price).
+  Hedging one token takes `multiplier` perp units, shown when it isn't 1
+- **BASIS** — perp mark vs. that spot
+- **FUNDING/8H / APR** — Lighter's current rate (settled hourly, an
+  eighth each hour) and its annualized carry; `-carry 10` alerts at
+  ±10% APR. Funding is variable and this ignores fees, slippage, and
+  margin; it is a monitor, not a signal. `-no-perps` hides the section
 
 It holds no keys, signs nothing, and deploys nothing. The public RPC is
 rate limited with no SLA; pass `-rpc` to use a provider endpoint.

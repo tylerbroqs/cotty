@@ -54,3 +54,14 @@ func TestPrice(t *testing.T) {
 		}
 	}
 }
+
+func TestBasisPct(t *testing.T) {
+	// A token worth 1.05 shares at $105 hedges against a perp on the
+	// $100 share: no basis.
+	if got := basisPct(100, 105, 1.05); got > 1e-9 || got < -1e-9 {
+		t.Errorf("basisPct(100, 105, 1.05) = %v, want 0", got)
+	}
+	if got := basisPct(101, 100, 1); got < 0.999 || got > 1.001 {
+		t.Errorf("basisPct(101, 100, 1) = %v, want 1", got)
+	}
+}

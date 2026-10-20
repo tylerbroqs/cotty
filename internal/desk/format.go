@@ -103,6 +103,14 @@ func pad(s string, n int) string {
 	return strings.Repeat(" ", n-w) + s
 }
 
+// padRight left-aligns s to width n, ignoring ANSI escapes.
+func padRight(s string, n int) string {
+	if w := visibleWidth(s); w < n {
+		return s + strings.Repeat(" ", n-w)
+	}
+	return s
+}
+
 func visibleWidth(s string) int {
 	w := 0
 	for i := 0; i < len(s); {

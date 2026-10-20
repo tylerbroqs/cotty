@@ -47,6 +47,11 @@ type Options struct {
 	// State is where last regular-session prices are kept between runs;
 	// empty means the user config directory.
 	State string
+	// CarryAPR flags a Lighter perp whose annualized funding is at least
+	// this many percent either way.
+	CarryAPR float64
+	// NoPerps skips the Lighter basis section.
+	NoPerps bool
 }
 
 // Run refreshes the dashboard until interrupted (or once, with Once).
@@ -56,6 +61,9 @@ func Run(opts Options) error {
 	}
 	if opts.AlertPct <= 0 {
 		opts.AlertPct = 1
+	}
+	if opts.CarryAPR <= 0 {
+		opts.CarryAPR = 10
 	}
 	if len(opts.Symbols) == 0 {
 		opts.Symbols = DefaultSymbols
@@ -194,19 +202,21 @@ func (d *desk) refresh(ctx context.Context) error {
 	if snap.ChainID != hood.ChainID {
 		return fmt.Errorf("RPC is chain %d, not Robinhood Chain mainnet (%d)", snap.ChainID, hood.ChainID)
 	}
-	quotes, qerr := d.c.Quotes(ctx)
-
-	now := time.Now()
-	sess := sessionAt(now)
-	if sess == regular && qerr == nil {
-		d.recordRefs(quotes, now)
+	v := view{snap: snap, now: time.Now()}
+	v.sess = sessionAt(v.now)
+	v.quotes, v.qerr = d.c.Quotes(ctx)
+	if !d.opts.NoPerps {
+		v.perps, v.perr = d.c.Perps(ctx)
+	}
+	if v.sess == regular && v.qerr == nil {
+		d.recordRefs(v.quotes, v.now)
 	}
 
 	var b strings.Builder
 	if !d.opts.Once {
 		b.WriteString("\x1b[H\x1b[2J")
 	}
-	d.render(&b, snap, quotes, qerr, sess, now)
+	d.render(&b, v)
 	_, err = io.WriteString(d.out, strings.ReplaceAll(b.String(), "\n", "\r\n"))
 	return err
 }
@@ -228,7 +238,19 @@ func (d *desk) recordRefs(quotes map[string]hood.Quote, now time.Time) {
 	}
 }
 
-func (d *desk) render(b *strings.Builder, s *hood.Snapshot, quotes map[string]hood.Quote, qerr error, sess session, now time.Time) {
+// view is everything one refresh read.
+type view struct {
+	snap   *hood.Snapshot
+	quotes map[string]hood.Quote
+	qerr   error
+	perps  map[string]hood.Perp
+	perr   error
+	sess   session
+	now    time.Time
+}
+
+func (d *desk) render(b *strings.Builder, v view) {
+	s, quotes, sess, now := v.snap, v.quotes, v.sess, v.now
 	ny := now.In(newYork)
 	fmt.Fprintf(b, "%s  Robinhood Chain %d  block %s  (%s ago)  base fee %s gwei\n",
 		d.paint(bold+orange, "COTTY DESK"), s.ChainID, commas(s.Head.Number),
@@ -304,13 +326,16 @@ func (d *desk) render(b *strings.Builder, s *hood.Snapshot, quotes map[string]ho
 			}
 		}
 
-		fmt.Fprintf(b, "%-6s %11s %11s %7s %11s %s %9s %s  %s\n",
-			d.paint(bold, r.sym), bid, ask, spread, feedPx, pad(dev, 8), feedAge, pad(gap, 8), strings.Join(flags, " "))
+		fmt.Fprintf(b, "%s %11s %11s %7s %11s %s %9s %s  %s\n",
+			padRight(d.paint(bold, r.sym), 6), bid, ask, spread, feedPx, pad(dev, 8), feedAge, pad(gap, 8), strings.Join(flags, " "))
 	}
 
 	b.WriteString("\n")
-	if qerr != nil {
-		fmt.Fprintf(b, "%s\n", d.paint(red, "quotes unavailable: "+qerr.Error()))
+	if !d.opts.NoPerps {
+		alerts = append(alerts, d.renderBasis(b, v)...)
+	}
+	if v.qerr != nil {
+		fmt.Fprintf(b, "%s\n", d.paint(red, "quotes unavailable: "+v.qerr.Error()))
 	}
 	if len(alerts) == 0 {
 		fmt.Fprintf(b, "%s\n", d.paint(green, "no alerts"))
@@ -319,8 +344,94 @@ func (d *desk) render(b *strings.Builder, s *hood.Snapshot, quotes map[string]ho
 		fmt.Fprintf(b, "%s %s\n", d.paint(yellow, "!"), a)
 	}
 	fmt.Fprintf(b, "\n%s\n", d.paint(dim, fmt.Sprintf(
-		"prices are per token (multiplier-adjusted) · Δ FEED: quote mid vs Chainlink · GAP: quote mid vs the last regular-session mid this desk saw · alert ≥ %.2g%% · refresh %s · read-only",
-		d.opts.AlertPct, d.opts.Interval)))
+		"prices are per token (multiplier-adjusted) · Δ FEED: quote mid vs Chainlink · GAP: quote mid vs the last regular-session mid this desk saw · alert ≥ %.2g%%, carry ≥ %.3g%% APR · refresh %s · read-only",
+		d.opts.AlertPct, d.opts.CarryAPR, d.opts.Interval)))
+}
+
+// renderBasis writes the Lighter perps section: for each watched symbol
+// with a perp, the spot it hedges against, the basis, and the funding
+// carry. It returns the alerts it raised.
+func (d *desk) renderBasis(b *strings.Builder, v view) []string {
+	if v.perr != nil {
+		fmt.Fprintf(b, "%s\n\n", d.paint(red, "lighter perps unavailable: "+v.perr.Error()))
+		return nil
+	}
+	var alerts []string
+	header := false
+	for _, r := range d.rows {
+		p, ok := v.perps[r.sym]
+		if !ok {
+			continue
+		}
+		spot, src := 0.0, ""
+		if q, ok := v.quotes[r.sym]; ok && q.Mid() > 0 {
+			spot, src = q.Mid(), "token"
+		} else if r.feed != nil {
+			if rd, ok := v.snap.Rounds[r.feed.Proxy]; ok {
+				spot, src = rd.Price, "chainlink"
+			}
+		}
+		if spot <= 0 {
+			continue
+		}
+		mult := 1.0
+		if ts, ok := v.snap.Tokens[r.token]; ok && ts.Multiplier > 0 {
+			mult = ts.Multiplier
+		}
+		if !header {
+			fmt.Fprintf(b, "%s\n", d.paint(dim, fmt.Sprintf("%-6s %11s %11s %8s %11s %8s  %s",
+				"LIGHTER", "PERP MARK", "SPOT", "BASIS", "FUNDING/8H", "APR", "CARRY")))
+			header = true
+		}
+
+		underlying := spot / mult
+		basis := basisPct(p.Mark, spot, mult)
+		fund, apr, carry := "-", "-", ""
+		if p.HasFunding {
+			fund = fmt.Sprintf("%+.4f%%", p.Funding8h*100)
+			a := p.FundingAPR() * 100
+			apr = d.signed(a)
+			carry = carryHint(a)
+			if math.Abs(a) >= d.opts.CarryAPR {
+				alerts = append(alerts, fmt.Sprintf("%s perp funding is %+.1f%% APR: %s", r.sym, a, carry))
+			}
+		}
+		// The basis is only meaningful while both sides trade; Stock
+		// Token quotes and feeds freeze over the weekend while perps don't.
+		if math.Abs(basis) >= d.opts.AlertPct && (r.token == "" || v.sess != weekend) {
+			alerts = append(alerts, fmt.Sprintf("%s perp is %+.2f%% from %s spot", r.sym, basis, src))
+		}
+		hedge := ""
+		if mult != 1 {
+			hedge = d.paint(dim, fmt.Sprintf("  (1 token = %.4f perp)", mult))
+		}
+		fmt.Fprintf(b, "%s %11s %11s %s %11s %s  %s%s\n",
+			padRight(d.paint(bold, r.sym), 6), price(p.Mark), price(underlying),
+			pad(d.signed(basis), 8), fund, pad(apr, 8), carry, hedge)
+	}
+	if header {
+		b.WriteString("\n")
+	}
+	return alerts
+}
+
+// basisPct is how far a perp trades from the spot it hedges, in percent.
+// Stock perps track the underlying share, while a Stock Token is worth
+// multiplier shares, so the token price is divided down first.
+func basisPct(perpMark, spot, multiplier float64) float64 {
+	underlying := spot / multiplier
+	return (perpMark - underlying) / underlying * 100
+}
+
+// carryHint names the side that collects funding.
+func carryHint(apr float64) string {
+	switch {
+	case apr > 0:
+		return "longs pay: long spot + short perp collects"
+	case apr < 0:
+		return "shorts pay: long perp collects"
+	}
+	return ""
 }
 
 func loadRefs(path string) map[string]ref {

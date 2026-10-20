@@ -61,6 +61,9 @@ Desk flags (run it inside 'cotty host' to watch it together):
   -interval duration  Refresh interval (default 15s, minimum 5s)
   -alert float        Alert threshold in percent for quote/feed
                       disagreement and session gaps (default 1)
+  -carry float        Alert when a Lighter perp's funding reaches this
+                      annualized percent either way (default 10)
+  -no-perps           Skip the Lighter perps basis section
   -once               Print one snapshot and exit
 
 Join flags:
@@ -183,6 +186,8 @@ func main() {
 		rpc := fs.String("rpc", "", "Robinhood Chain RPC endpoint")
 		interval := fs.Duration("interval", 15*time.Second, "refresh interval")
 		alert := fs.Float64("alert", 1, "alert threshold in percent")
+		carry := fs.Float64("carry", 10, "funding alert threshold in annualized percent")
+		noPerps := fs.Bool("no-perps", false, "skip the Lighter perps section")
 		once := fs.Bool("once", false, "print one snapshot and exit")
 		fs.Parse(os.Args[2:])
 		err := desk.Run(desk.Options{
@@ -191,6 +196,8 @@ func main() {
 			Interval: *interval,
 			Once:     *once,
 			AlertPct: *alert,
+			CarryAPR: *carry,
+			NoPerps:  *noPerps,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)

@@ -62,3 +62,11 @@ func TestDecodeToken(t *testing.T) {
 		t.Errorf("got %+v, want multiplier 1.05, paused", ts)
 	}
 }
+
+func TestFundingAPR(t *testing.T) {
+	// 0.0032% per 8h, three periods a day.
+	p := Perp{Funding8h: 3.2e-5}
+	if got := p.FundingAPR(); got < 0.03503 || got > 0.03505 {
+		t.Errorf("FundingAPR = %v, want 0.03504", got)
+	}
+}
