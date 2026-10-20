@@ -6,10 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/tylerbroqs/cotty/internal/client"
 	"github.com/tylerbroqs/cotty/internal/ctl"
+	"github.com/tylerbroqs/cotty/internal/desk"
 	"github.com/tylerbroqs/cotty/internal/host"
 	"github.com/tylerbroqs/cotty/internal/relay"
 	"github.com/tylerbroqs/cotty/internal/replay"
@@ -25,6 +27,7 @@ Usage:
   cotty ctl [flags] <command>  Manage the guests of a running session
   cotty relay [flags]          Run a relay server for NAT-friendly sessions
   cotty replay [flags] <file>  Play back a recorded session
+  cotty desk [flags]           Robinhood Chain market dashboard (read-only)
   cotty version                Print version
 
 Host flags:
@@ -48,6 +51,17 @@ Replay flags:
   -speed float      Playback speed multiplier (default 1)
   -max-idle duration  Cap pauses between events, e.g. 2s (default 2s;
                       0 keeps original timing)
+
+Desk flags (run it inside 'cotty host' to watch it together):
+  -symbols string     Comma-separated watch list, or "all" for every Stock
+                      Token with a Chainlink feed
+                      (default TSLA,NVDA,AAPL,MSTR,COIN,SPY,QQQ,ETH,BTC)
+  -rpc string         Robinhood Chain RPC endpoint (default: the public
+                      mainnet RPC, which is rate limited)
+  -interval duration  Refresh interval (default 15s, minimum 5s)
+  -alert float        Alert threshold in percent for quote/feed
+                      disagreement and session gaps (default 1)
+  -once               Print one snapshot and exit
 
 Join flags:
   -name string    Display name other participants see (default $USER)
@@ -160,6 +174,25 @@ func main() {
 			os.Exit(2)
 		}
 		if err := replay.Run(fs.Arg(0), replay.Options{Speed: *speed, MaxIdle: *maxIdle}); err != nil {
+			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
+			os.Exit(1)
+		}
+	case "desk":
+		fs := flag.NewFlagSet("desk", flag.ExitOnError)
+		symbols := fs.String("symbols", strings.Join(desk.DefaultSymbols, ","), `watch list, or "all"`)
+		rpc := fs.String("rpc", "", "Robinhood Chain RPC endpoint")
+		interval := fs.Duration("interval", 15*time.Second, "refresh interval")
+		alert := fs.Float64("alert", 1, "alert threshold in percent")
+		once := fs.Bool("once", false, "print one snapshot and exit")
+		fs.Parse(os.Args[2:])
+		err := desk.Run(desk.Options{
+			RPC:      *rpc,
+			Symbols:  strings.Split(*symbols, ","),
+			Interval: *interval,
+			Once:     *once,
+			AlertPct: *alert,
+		})
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
 			os.Exit(1)
 		}

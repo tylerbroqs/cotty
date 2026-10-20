@@ -51,6 +51,8 @@ permissions, presence, accountability, and end-to-end encryption.
   permission changes, and kicks
 - **Live presence** — everyone sees who joins, leaves, and is typing
 - **Session codes** — every session is protected by a random join code
+- **Market desk** — `cotty desk` is a read-only Robinhood Chain dashboard
+  (Stock Token quotes, Chainlink feeds, session gaps) to watch together
 
 ## Install
 
@@ -185,6 +187,48 @@ the session code and key live in the URL fragment, which browsers never
 send to any server. Assets are embedded in the cotty binary — the page
 makes no CDN or third-party requests. Opening the bare page (no fragment)
 shows a join form instead.
+
+### Market desk: Robinhood Chain, together
+
+`cotty desk` is a live, read-only dashboard for
+[Robinhood Chain](https://docs.robinhood.com/chain/) mainnet. Run it in a
+hosted session and everyone watches the same screen:
+
+```sh
+cotty host -audit desk.jsonl      # then, inside the hosted shell:
+cotty desk                        # default watch list
+cotty desk -symbols TSLA,NVDA,SPY -alert 0.5
+cotty desk -symbols all           # every Stock Token with a Chainlink feed
+cotty desk -once                  # one snapshot, no screen clearing
+```
+
+```
+SYMBOL         BID         ASK  SPREAD   CHAINLINK   Δ FEED  FEED AGE      GAP  FLAGS
+TSLA        367.00      367.38   0.10%      365.91   +0.35%     3h20m   +2.00%
+NVDA        216.62      216.66   0.02%      217.07   -0.20%     8h17m   +0.06%  x1.0008
+
+! TSLA has moved +2.00% since the regular session (Mon 15:59)
+```
+
+- **BID / ASK** — live Stock Token quotes from Robinhood's read-only API
+  (`api.robinhood.com/rhj`), per token, i.e. multiplier-adjusted
+- **CHAINLINK / FEED AGE** — the token's Chainlink feed, read on-chain;
+  feed addresses come from Chainlink's directory, token addresses from
+  Robinhood's asset list, so nothing is hardcoded
+- **Δ FEED** — how far the live quote is from the feed
+- **GAP** — outside the regular US session (overnight, weekends), how far
+  the quote has moved from the last regular-session price the desk saw;
+  those prices are kept in your config directory between runs, so leave
+  the desk running through a close to arm it
+- **FLAGS** — `HALT`, `ORACLE-PAUSED` (corporate action in progress),
+  `STALE` (feed older than its heartbeat while its market is open), and
+  the corporate-action multiplier when it isn't 1
+
+It holds no keys, signs nothing, and deploys nothing. The public RPC is
+rate limited with no SLA; pass `-rpc` to use a provider endpoint.
+Exchange holidays are not modeled. Stock Tokens are not available to US
+persons and are restricted in other jurisdictions; the desk only reads
+public data.
 
 ## How it works
 
