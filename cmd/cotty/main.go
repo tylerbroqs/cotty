@@ -58,13 +58,14 @@ Replay flags:
 Agent flags (the agent joins view-only; 'cotty ctl allow agent' lets it
 run commands, which everyone sees and the audit trail attributes to it):
   -name string      Display name (default "agent")
-  -provider string  anthropic (default) or openai, which covers any
-                    OpenAI-compatible endpoint (OpenRouter, Ollama, ...)
-  -model string     Model (default claude-opus-5-5 for anthropic;
-                    required for openai)
+  -provider string  orbio (default; Orbio's gateway, ORBIO_API_KEY),
+                    anthropic (ANTHROPIC_API_KEY), or openai, which covers
+                    any OpenAI-compatible endpoint (OpenRouter, Ollama, ...)
+  -model string     Model (default anthropic/claude-opus-5.5 for orbio,
+                    claude-opus-5-5 for anthropic; required for openai)
   -base-url string  API endpoint override, e.g. http://localhost:11434/v1
-  -key-env string   Env var holding the API key (default ANTHROPIC_API_KEY
-                    or OPENAI_API_KEY)
+  -key-env string   Env var holding the API key (default ORBIO_API_KEY,
+                    ANTHROPIC_API_KEY or OPENAI_API_KEY)
   -steps int        Max model calls per question (default 4)
 
 Desk flags (run it inside 'cotty host' to watch it together):
@@ -221,14 +222,14 @@ func main() {
 	case "agent":
 		fs := flag.NewFlagSet("agent", flag.ExitOnError)
 		name := fs.String("name", "agent", "display name")
-		provider := fs.String("provider", "anthropic", "anthropic or openai (any OpenAI-compatible endpoint)")
+		provider := fs.String("provider", "orbio", "orbio, anthropic, or openai (any OpenAI-compatible endpoint)")
 		model := fs.String("model", "", "model to use")
 		baseURL := fs.String("base-url", "", "API endpoint override")
 		keyEnv := fs.String("key-env", "", "environment variable holding the API key")
 		steps := fs.Int("steps", 4, "max model calls per question")
 		fs.Parse(os.Args[2:])
 		if fs.NArg() != 1 {
-			fmt.Fprintln(os.Stderr, "usage: cotty agent [-provider anthropic|openai] [-model M] [-name NAME] <join-url>")
+			fmt.Fprintln(os.Stderr, "usage: cotty agent [-provider orbio|anthropic|openai] [-model M] [-name NAME] <join-url>")
 			os.Exit(2)
 		}
 		err := agent.Run(agent.Options{

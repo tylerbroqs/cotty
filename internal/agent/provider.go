@@ -27,9 +27,10 @@ type provider interface {
 
 // ProviderOptions selects and configures the model an agent uses.
 type ProviderOptions struct {
-	// Provider is "anthropic" (the Messages API) or "openai" (any
-	// endpoint speaking the OpenAI chat-completions format: OpenAI,
-	// OpenRouter, Groq, Ollama, LM Studio, vLLM, ...).
+	// Provider is "anthropic" (the Messages API), "orbio" (Orbio's
+	// OpenRouter-compatible gateway, paid from an Orbio CREDIT balance),
+	// or "openai" (any endpoint speaking the OpenAI chat-completions
+	// format: OpenAI, OpenRouter, Groq, Ollama, LM Studio, vLLM, ...).
 	Provider string
 	// Model overrides the provider's default model. Required for
 	// "openai", which has no sensible default across endpoints.
@@ -37,7 +38,7 @@ type ProviderOptions struct {
 	// BaseURL overrides the provider's API endpoint.
 	BaseURL string
 	// KeyEnv names the environment variable holding the API key
-	// (default ANTHROPIC_API_KEY or OPENAI_API_KEY).
+	// (default ANTHROPIC_API_KEY, ORBIO_API_KEY or OPENAI_API_KEY).
 	KeyEnv string
 }
 
@@ -45,6 +46,8 @@ const (
 	defaultAnthropicModel = "claude-opus-5-5"
 	anthropicBaseURL      = "https://api.anthropic.com"
 	openAIBaseURL         = "https://api.openai.com/v1"
+	orbioBaseURL          = "https://api.orbio.so/api/v1"
+	defaultOrbioModel     = "anthropic/claude-opus-5.5"
 	requestTimeout        = 3 * time.Minute
 	maxOutputTokens       = 16000
 )
@@ -70,6 +73,25 @@ func newProvider(o ProviderOptions) (provider, error) {
 		}
 		return &anthropic{key: key, model: model, base: base}, nil
 
+	case "orbio":
+		env := o.KeyEnv
+		if env == "" {
+			env = "ORBIO_API_KEY"
+		}
+		key := os.Getenv(env)
+		if key == "" {
+			return nil, fmt.Errorf("set %s to your Orbio API key (from the dashboard at orbio.so), or pick another -provider", env)
+		}
+		model := o.Model
+		if model == "" {
+			model = defaultOrbioModel
+		}
+		base := strings.TrimSuffix(o.BaseURL, "/")
+		if base == "" {
+			base = orbioBaseURL
+		}
+		return &orbio{openAI{key: key, model: model, base: base}}, nil
+
 	case "openai", "openai-compatible":
 		env := o.KeyEnv
 		if env == "" {
@@ -89,7 +111,7 @@ func newProvider(o ProviderOptions) (provider, error) {
 		return &openAI{key: key, model: o.Model, base: base}, nil
 
 	default:
-		return nil, fmt.Errorf("unknown provider %q (use anthropic or openai)", o.Provider)
+		return nil, fmt.Errorf("unknown provider %q (use anthropic, orbio or openai)", o.Provider)
 	}
 }
 
@@ -123,9 +145,13 @@ func postJSON(ctx context.Context, url string, headers map[string]string, body, 
 		var apiErr struct {
 			Error struct {
 				Message string `json:"message"`
+				Code    any    `json:"code"`
 			} `json:"error"`
 		}
 		if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Message != "" {
+			if code, ok := apiErr.Error.Code.(string); ok && code != "" {
+				return fmt.Errorf("%s: %s (%s)", resp.Status, apiErr.Error.Message, code)
+			}
 			return fmt.Errorf("%s: %s", resp.Status, apiErr.Error.Message)
 		}
 		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(raw)))
@@ -211,4 +237,22 @@ func (o *openAI) complete(ctx context.Context, system string, msgs []message) (s
 		return "", errors.New("the model declined to answer: " + m.Refusal)
 	}
 	return resp.Choices[0].Message.Content, nil
+}
+
+// orbio is Orbio's gateway: the OpenAI chat-completions format, with
+// errors explained in Orbio's terms.
+type orbio struct {
+	openAI
+}
+
+func (o *orbio) describe() string { return "orbio " + o.model }
+
+func (o *orbio) complete(ctx context.Context, system string, msgs []message) (string, error) {
+	reply, err := o.openAI.complete(ctx, system, msgs)
+	// Accounts with Orbio Incognito turned on only accept requests
+	// encrypted locally with Orbio's adapter, which this client doesn't do.
+	if err != nil && strings.Contains(err.Error(), "private_") {
+		err = fmt.Errorf("%w; this Orbio account requires Incognito (locally encrypted requests), which cotty agent doesn't support yet: turn Incognito off for this account or use another key", err)
+	}
+	return reply, err
 }

@@ -94,3 +94,45 @@ func TestOpenAICompatible(t *testing.T) {
 		t.Error("openai without -model should fail")
 	}
 }
+
+func TestOrbio(t *testing.T) {
+	var model string
+	status, body := 200, `{"choices":[{"message":{"content":"ok"}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/chat/completions" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer ok-key" {
+			t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
+		}
+		var req struct {
+			Model string `json:"model"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		model = req.Model
+		w.WriteHeader(status)
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	t.Setenv("ORBIO_API_KEY", "")
+	if _, err := newProvider(ProviderOptions{Provider: "orbio"}); err == nil || !strings.Contains(err.Error(), "ORBIO_API_KEY") {
+		t.Errorf("no key: err = %v", err)
+	}
+	t.Setenv("ORBIO_API_KEY", "ok-key")
+	p, err := newProvider(ProviderOptions{Provider: "orbio", BaseURL: srv.URL + "/api/v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply, err := p.complete(context.Background(), "sys", []message{{Role: "user", Content: "q"}}); err != nil || reply != "ok" {
+		t.Fatalf("reply = %q, err = %v", reply, err)
+	}
+	if model != defaultOrbioModel {
+		t.Errorf("model = %q, want %q", model, defaultOrbioModel)
+	}
+
+	status, body = 403, `{"error":{"code":"private_encryption_required","type":"incognito_error","message":"encrypt first"}}`
+	if _, err := p.complete(context.Background(), "", nil); err == nil || !strings.Contains(err.Error(), "Incognito") {
+		t.Errorf("incognito: err = %v", err)
+	}
+}
