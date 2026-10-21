@@ -97,6 +97,7 @@ func TestOpenAICompatible(t *testing.T) {
 
 func TestOrbio(t *testing.T) {
 	var model string
+	var maxTokens float64
 	status, body := 200, `{"choices":[{"message":{"content":"ok"}}]}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/chat/completions" {
@@ -106,10 +107,11 @@ func TestOrbio(t *testing.T) {
 			t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
 		}
 		var req struct {
-			Model string `json:"model"`
+			Model     string  `json:"model"`
+			MaxTokens float64 `json:"max_tokens"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
-		model = req.Model
+		model, maxTokens = req.Model, req.MaxTokens
 		w.WriteHeader(status)
 		w.Write([]byte(body))
 	}))
@@ -129,6 +131,10 @@ func TestOrbio(t *testing.T) {
 	}
 	if model != defaultOrbioModel {
 		t.Errorf("model = %q, want %q", model, defaultOrbioModel)
+	}
+	// Orbio reserves the cost of the whole cap, so one is always sent.
+	if maxTokens != maxOutputTokens {
+		t.Errorf("max_tokens = %v, want %d", maxTokens, maxOutputTokens)
 	}
 
 	status, body = 403, `{"error":{"code":"private_encryption_required","type":"incognito_error","message":"encrypt first"}}`

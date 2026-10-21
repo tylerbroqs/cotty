@@ -64,6 +64,8 @@ type Options struct {
 const (
 	refresh      = 15 * time.Second
 	modelTimeout = 2 * time.Minute
+	// decisionTokens caps each model's reply in a round.
+	decisionTokens = 4000
 )
 
 // competition is what's saved between runs.
@@ -125,6 +127,11 @@ func Run(opts Options) error {
 	for _, id := range opts.Models {
 		po := opts.Provider
 		po.Model = id
+		// A decision is a few hundred tokens; room for the model's
+		// reasoning on top, without reserving a huge reply's cost.
+		if po.MaxTokens == 0 {
+			po.MaxTokens = decisionTokens
+		}
 		m, err := agent.NewModel(po)
 		if err != nil {
 			return fmt.Errorf("%s: %w", id, err)

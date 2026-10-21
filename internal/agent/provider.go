@@ -40,6 +40,12 @@ type ProviderOptions struct {
 	// KeyEnv names the environment variable holding the API key
 	// (default ANTHROPIC_API_KEY, ORBIO_API_KEY or OPENAI_API_KEY).
 	KeyEnv string
+	// MaxTokens caps each reply (default 16000 for anthropic and orbio).
+	// Gateways like Orbio reserve the cost of the whole cap up front, so
+	// a cap far above what replies need can fail on a small balance.
+	// openai endpoints get no cap unless one is set: OpenAI's newer
+	// models reject max_tokens.
+	MaxTokens int
 }
 
 const (
@@ -71,7 +77,7 @@ func newProvider(o ProviderOptions) (provider, error) {
 		if base == "" {
 			base = anthropicBaseURL
 		}
-		return &anthropic{key: key, model: model, base: base}, nil
+		return &anthropic{key: key, model: model, base: base, maxTokens: orDefault(o.MaxTokens, maxOutputTokens)}, nil
 
 	case "orbio":
 		env := o.KeyEnv
@@ -90,7 +96,7 @@ func newProvider(o ProviderOptions) (provider, error) {
 		if base == "" {
 			base = orbioBaseURL
 		}
-		return &orbio{openAI{key: key, model: model, base: base}}, nil
+		return &orbio{openAI{key: key, model: model, base: base, maxTokens: orDefault(o.MaxTokens, maxOutputTokens)}}, nil
 
 	case "openai", "openai-compatible":
 		env := o.KeyEnv
@@ -108,11 +114,18 @@ func newProvider(o ProviderOptions) (provider, error) {
 		if o.Model == "" {
 			return nil, errors.New("-model is required with -provider openai (e.g. -model gpt-5 or a model your endpoint serves)")
 		}
-		return &openAI{key: key, model: o.Model, base: base}, nil
+		return &openAI{key: key, model: o.Model, base: base, maxTokens: o.MaxTokens}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown provider %q (use anthropic, orbio or openai)", o.Provider)
 	}
+}
+
+func orDefault(v, def int) int {
+	if v > 0 {
+		return v
+	}
+	return def
 }
 
 // postJSON sends body to url and decodes a JSON reply into out, turning
@@ -162,6 +175,7 @@ func postJSON(ctx context.Context, url string, headers map[string]string, body, 
 // anthropic talks to the Claude Messages API.
 type anthropic struct {
 	key, model, base string
+	maxTokens        int
 }
 
 func (a *anthropic) describe() string { return "anthropic " + a.model }
@@ -169,7 +183,7 @@ func (a *anthropic) describe() string { return "anthropic " + a.model }
 func (a *anthropic) complete(ctx context.Context, system string, msgs []message) (string, error) {
 	body := map[string]any{
 		"model":      a.model,
-		"max_tokens": maxOutputTokens,
+		"max_tokens": a.maxTokens,
 		"system":     system,
 		"messages":   msgs,
 	}
@@ -208,6 +222,7 @@ func (a *anthropic) complete(ctx context.Context, system string, msgs []message)
 // openAI talks to any OpenAI-compatible chat-completions endpoint.
 type openAI struct {
 	key, model, base string
+	maxTokens        int // 0: send no limit
 }
 
 func (o *openAI) describe() string { return "openai-compatible " + o.model + " at " + o.base }
@@ -227,6 +242,9 @@ func (o *openAI) complete(ctx context.Context, system string, msgs []message) (s
 		} `json:"choices"`
 	}
 	body := map[string]any{"model": o.model, "messages": all}
+	if o.maxTokens > 0 {
+		body["max_tokens"] = o.maxTokens
+	}
 	if err := postJSON(ctx, o.base+"/chat/completions", headers, body, &resp); err != nil {
 		return "", err
 	}
