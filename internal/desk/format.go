@@ -176,3 +176,7 @@ func gwei(h hood.Head) string {
 	f, _ := new(big.Float).Quo(new(big.Float).SetInt(h.BaseFee), big.NewFloat(1e9)).Float64()
 	return fmt.Sprintf("%.4f", f)
 }
+
+// Session names the US equities session at t in New York time, e.g.
+// "REGULAR" or "WEEKEND".
+func Session(t time.Time) string { return sessionAt(t).String() }

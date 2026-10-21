@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tylerbroqs/cotty/internal/agent"
+	"github.com/tylerbroqs/cotty/internal/arena"
 	"github.com/tylerbroqs/cotty/internal/client"
 	"github.com/tylerbroqs/cotty/internal/ctl"
 	"github.com/tylerbroqs/cotty/internal/desk"
@@ -29,6 +30,7 @@ Usage:
   cotty relay [flags]          Run a relay server for NAT-friendly sessions
   cotty replay [flags] <file>  Play back a recorded session
   cotty desk [flags]           Robinhood Chain market dashboard (read-only)
+  cotty arena [flags]          AI models compete at paper trading Stock Tokens
   cotty agent [flags] <url>    Bring an AI agent into a session as a guest
   cotty ask <question>         Ask the session's agent (run inside the session)
   cotty version                Print version
@@ -67,6 +69,22 @@ run commands, which everyone sees and the audit trail attributes to it):
   -key-env string   Env var holding the API key (default ORBIO_API_KEY,
                     ANTHROPIC_API_KEY or OPENAI_API_KEY)
   -steps int        Max model calls per question (default 4)
+
+Arena flags (paper trading on live prices; run it inside 'cotty host'
+so everyone watches the leaderboard; progress is saved between runs):
+  -models string    Comma-separated contestants (default
+                    anthropic/claude-opus-5.5,openai/gpt-6-astra,
+                    google/gemini-3.8-flash)
+  -provider string  orbio (default, ORBIO_API_KEY), anthropic, or openai
+  -base-url string  API endpoint override
+  -key-env string   Env var holding the API key
+  -symbols string   Tradable Stock Tokens (default TSLA,NVDA,AAPL,MSFT,
+                    AMZN,META,GOOGL,MSTR,COIN,PLTR,SPY,QQQ)
+  -round duration   Time between trading rounds (default 5m, minimum 1m)
+  -cash float       Starting cash per contestant (default 10000)
+  -benchmark string Symbol the buy-and-hold contestant holds (default SPY)
+  -state string     Save file (default <config dir>/cotty/arena.json)
+  -once             Play one round, print the board, and exit
 
 Desk flags (run it inside 'cotty host' to watch it together):
   -symbols string     Comma-separated watch list, or "all" for every Stock
@@ -214,6 +232,41 @@ func main() {
 			AlertPct: *alert,
 			CarryAPR: *carry,
 			NoPerps:  *noPerps,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
+			os.Exit(1)
+		}
+	case "arena":
+		fs := flag.NewFlagSet("arena", flag.ExitOnError)
+		models := fs.String("models", strings.Join(arena.DefaultModels, ","), "contestant model IDs")
+		provider := fs.String("provider", "orbio", "orbio, anthropic, or openai")
+		baseURL := fs.String("base-url", "", "API endpoint override")
+		keyEnv := fs.String("key-env", "", "environment variable holding the API key")
+		symbols := fs.String("symbols", strings.Join(arena.DefaultSymbols, ","), "tradable Stock Tokens")
+		round := fs.Duration("round", 5*time.Minute, "time between rounds")
+		cash := fs.Float64("cash", 10000, "starting cash per contestant")
+		bench := fs.String("benchmark", "SPY", "symbol the buy-and-hold contestant holds")
+		state := fs.String("state", "", "save file")
+		rpc := fs.String("rpc", "", "Robinhood Chain RPC endpoint")
+		once := fs.Bool("once", false, "play one round and exit")
+		fs.Parse(os.Args[2:])
+		var ms []string
+		for _, m := range strings.Split(*models, ",") {
+			if m = strings.TrimSpace(m); m != "" {
+				ms = append(ms, m)
+			}
+		}
+		err := arena.Run(arena.Options{
+			Models:    ms,
+			Provider:  agent.ProviderOptions{Provider: *provider, BaseURL: *baseURL, KeyEnv: *keyEnv},
+			Symbols:   strings.Split(*symbols, ","),
+			Round:     *round,
+			Cash:      *cash,
+			Benchmark: *bench,
+			State:     *state,
+			Once:      *once,
+			RPC:       *rpc,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)

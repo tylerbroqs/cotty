@@ -256,3 +256,26 @@ func (o *orbio) complete(ctx context.Context, system string, msgs []message) (st
 	}
 	return reply, err
 }
+
+// Model is a configured chat model for other cotty programs (cotty arena
+// uses one per contestant).
+type Model struct {
+	p provider
+}
+
+// NewModel builds the model that o selects, reading its API key from the
+// environment like the agent does.
+func NewModel(o ProviderOptions) (*Model, error) {
+	p, err := newProvider(o)
+	if err != nil {
+		return nil, err
+	}
+	return &Model{p: p}, nil
+}
+
+// Ask sends one system prompt and one user message and returns the reply.
+func (m *Model) Ask(ctx context.Context, system, prompt string) (string, error) {
+	return m.p.complete(ctx, system, []message{{Role: "user", Content: prompt}})
+}
+
+func (m *Model) String() string { return m.p.describe() }

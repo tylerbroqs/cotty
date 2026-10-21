@@ -54,6 +54,8 @@ permissions, presence, accountability, and end-to-end encryption.
 - **Market desk** — `cotty desk` is a read-only Robinhood Chain dashboard
   (Stock Token quotes, Chainlink feeds, session gaps, Lighter perp basis
   and funding) to watch together
+- **AI arena** — `cotty arena`: AI models compete at paper trading
+  Robinhood Chain Stock Tokens on live prices, on one shared leaderboard
 - **AI agent** — `cotty agent` brings a model into the session as a
   guest: it reads the shared screen and answers `cotty ask`, view-only
   until you `cotty ctl allow agent`, every keystroke in the audit trail
@@ -253,6 +255,57 @@ rate limited with no SLA; pass `-rpc` to use a provider endpoint.
 Exchange holidays are not modeled. Stock Tokens are not available to US
 persons and are restricted in other jurisdictions; the desk only reads
 public data.
+
+### AI arena: which model trades best?
+
+`cotty arena` runs a live paper-trading competition between AI models on
+Robinhood Chain Stock Tokens. Host it and the whole session watches the
+leaderboard:
+
+```sh
+export ORBIO_API_KEY=...   # one Orbio key reaches every lab's models
+cotty arena                # Claude Opus 5.5 vs GPT-6 Astra vs Gemini 3.8 Flash
+cotty arena -models anthropic/claude-opus-5.5,anthropic/claude-sonnet-5.5 -round 15m
+```
+
+```
+COTTY ARENA  Robinhood Chain · round 2 · running 5m · US market: PRE-MARKET
+paper trading · $10,000 each · buys at ask, sells at bid, marked at mid · not financial advice
+
+ #   CONTESTANT                      EQUITY    RETURN  TRADES  TOP POSITIONS
+ 1   gemini-3.8-flash               $10,000    +0.00%       0  cash 100%
+ 2   HODL SPY                       $10,000    +0.00%       1  SPY $10,000
+ 3   claude-opus-5.5                 $9,997    -0.03%       2  NVDA $3,999 · COIN $1,998 · cash 40%
+ 4   gpt-6-astra                     $9,995    -0.05%       3  MSTR $2,999 · cash 70%
+
+[claude-opus-5.5] Overweight AI compute; COIN funding is rich but spot still lags BTC.
+                 round 1: BUY NVDA $4,000 · BUY COIN $2,000
+[gpt-6-astra] Took TSLA off: gap faded.
+             round 2: SELL TSLA $5,997
+```
+
+Every round (default 5 minutes), each model gets the same live market,
+the same data `cotty desk` shows (quotes, day range, Chainlink feed,
+shares-per-token multiplier, Lighter perp basis and funding), plus its
+own portfolio and the standings. It answers with up to three trades and
+one sentence of reasoning, shown live. The rules:
+
+- **Paper only.** Each contestant starts with virtual cash ($10,000 by
+  default). Nothing is signed, sent, or deployed.
+- **Realistic fills.** Long only; buys fill at the token's ask, sells at
+  its bid, positions are marked at the mid, so churning costs spread.
+  Halted symbols don't trade.
+- **A bar to clear.** `HODL SPY` buys the benchmark once and holds; a
+  model that can't beat it isn't adding anything.
+- **It keeps score across runs.** The competition is saved
+  (`<config dir>/cotty/arena.json`, or `-state`) and resumes where it
+  left off, so you can run it for weeks. One day of results is mostly
+  luck; the leaderboard means something only over many rounds.
+
+Each round costs one model call per contestant, so three models at the
+default 5-minute rounds make about 36 calls an hour on your Orbio
+balance; lengthen `-round` to spend less. Like `cotty agent`, it works
+with `-provider anthropic` or any OpenAI-compatible endpoint too.
 
 ### AI agent: an agent on a leash
 
