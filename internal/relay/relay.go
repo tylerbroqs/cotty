@@ -151,7 +151,7 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch msg.Type {
-		case protocol.TypeOutput, protocol.TypeResize, protocol.TypeInfo, protocol.TypeAsk, protocol.TypeSay:
+		case protocol.TypeOutput, protocol.TypeResize, protocol.TypeInfo, protocol.TypeAsk, protocol.TypeSay, protocol.TypeProposal:
 			sess.guests.Broadcast(msg)
 		case protocol.TypeControl:
 			text, err := sess.guests.Apply(msg.Op, msg.Name)
@@ -217,6 +217,11 @@ func (s *Server) handleGuest(w http.ResponseWriter, r *http.Request) {
 			// relay can't read it in encrypted sessions, only attribute it.
 			if len(msg.Data) <= 2*protocol.MaxSayBytes {
 				sess.host.Send(protocol.Message{Type: protocol.TypeSay, Data: msg.Data, Name: g.Name})
+			}
+		case protocol.TypeVote:
+			// Votes go to the host, which decides who may approve.
+			if len(msg.Data) <= 4096 {
+				sess.host.Send(protocol.Message{Type: protocol.TypeVote, Data: msg.Data, Name: g.Name})
 			}
 		default:
 			// Ignore unknown frames for forward compatibility.

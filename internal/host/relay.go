@@ -68,7 +68,7 @@ func normalizeRelayURL(raw string) (string, error) {
 	return u.String(), nil
 }
 
-func dialRelay(relay, code string, writable, encrypt bool, writeInput, onSay func(who string, data []byte), aud *audit.Logger) (*relayTransport, string, error) {
+func dialRelay(relay, code string, writable, encrypt bool, writeInput, onSay, onVote func(who string, data []byte), aud *audit.Logger) (*relayTransport, string, error) {
 	target, err := normalizeRelayURL(relay)
 	if err != nil {
 		return nil, "", err
@@ -136,7 +136,7 @@ func dialRelay(relay, code string, writable, encrypt bool, writeInput, onSay fun
 		granted:      make(map[string]bool),
 		anyWrite:     writable,
 	}
-	go t.readLoop(ctx, writeInput, onSay, aud)
+	go t.readLoop(ctx, writeInput, onSay, onVote, aud)
 	go t.pingLoop(ctx)
 
 	// The key travels in the URL fragment, which clients never send over
@@ -150,7 +150,7 @@ func dialRelay(relay, code string, writable, encrypt bool, writeInput, onSay fun
 
 // readLoop handles frames coming down from the relay: guest input and
 // chat, join/leave notices, and control-command results.
-func (t *relayTransport) readLoop(ctx context.Context, writeInput, onSay func(who string, data []byte), aud *audit.Logger) {
+func (t *relayTransport) readLoop(ctx context.Context, writeInput, onSay, onVote func(who string, data []byte), aud *audit.Logger) {
 	for {
 		var msg protocol.Message
 		if err := t.conn.Read(ctx, &msg); err != nil {
@@ -192,6 +192,17 @@ func (t *relayTransport) readLoop(ctx context.Context, writeInput, onSay func(wh
 				who = "guest"
 			}
 			onSay(who, data)
+		case protocol.TypeVote:
+			// Sealed, so the relay can attribute a vote but not forge one;
+			// the host checks the sealed voter against the attribution.
+			data := msg.Data
+			if t.cipher != nil {
+				var err error
+				if data, err = t.cipher.Open(data); err != nil {
+					continue
+				}
+			}
+			onVote(msg.Name, data)
 		case protocol.TypeInfo:
 			text := protocol.SanitizeText(msg.Text)
 			aud.Event("info", "", text)
@@ -272,7 +283,7 @@ func (t *relayTransport) pingLoop(ctx context.Context) {
 
 func (t *relayTransport) broadcast(msg protocol.Message) {
 	switch msg.Type {
-	case protocol.TypeOutput, protocol.TypeAsk, protocol.TypeSay:
+	case protocol.TypeOutput, protocol.TypeAsk, protocol.TypeSay, protocol.TypeProposal:
 		if t.cipher != nil {
 			msg.Data = t.cipher.Seal(msg.Data)
 		}

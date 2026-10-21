@@ -56,6 +56,8 @@ permissions, presence, accountability, and end-to-end encryption.
   and funding) to watch together
 - **AI arena** — `cotty arena`: AI models compete at paper trading
   Robinhood Chain Stock Tokens on live prices, on one shared leaderboard
+- **Multisig for agents** — `cotty host -quorum 2 -approvers host,alice,bob`:
+  an agent's commands wait until 2 of 3 people approve them
 - **AI agent** — `cotty agent` brings a model into the session as a
   guest: it reads the shared screen and answers `cotty ask`, view-only
   until you `cotty ctl allow agent`, every keystroke in the audit trail
@@ -306,6 +308,47 @@ Each round costs one model call per contestant, so three models at the
 default 5-minute rounds make about 36 calls an hour on your Orbio
 balance; lengthen `-round` to spend less. Like `cotty agent`, it works
 with `-provider anthropic` or any OpenAI-compatible endpoint too.
+
+### Multisig for agents: M of N people approve every command
+
+`cotty ctl allow agent` lets an agent type; multisig decides whether
+what it types runs. Host with a quorum and every keystroke from the
+agent is held as a proposal until enough of the named approvers vote
+for it, like an M-of-N multisig wallet:
+
+```sh
+cotty host -relay relay.example.com:7374 -audit trail.jsonl \
+  -quorum 2 -approvers host,alice,bob
+cotty ctl allow agent
+```
+
+```
+[multisig] #1 agent wants to run: cotty desk -symbols NVDA,COIN⏎  (needs 2 of host, alice, bob; vote with: cotty approve 1 / cotty reject 1)
+[multisig] #1 approved by alice (1/2)
+[multisig] #1 approved 2/2 by alice, host; running: cotty desk -symbols NVDA,COIN⏎
+```
+
+- **Everyone sees the proposal**, in the shared terminal itself (so it is
+  in recordings), with Enter and control keys spelled out (`⏎`, `^C`).
+- **Voting:** the host runs `cotty approve N` / `cotty reject N`
+  (`cotty pending` lists what's waiting); terminal guests press
+  `Ctrl-\` and type `approve N`; browser guests get Approve / Reject
+  buttons.
+- **It runs at the quorum, and dies when it can't reach it:** as soon
+  as too many approvers reject, the proposal is rejected. Unvoted
+  proposals expire after 10 minutes. Only the named approvers count,
+  each once, and a supervised participant can't approve itself.
+- **Enforced by the host, not the agent.** Held keystrokes never reach
+  the shell until the vote passes, whatever the agent does. Through a
+  relay, proposals and votes are sealed with the session key: the relay
+  can't read the command or forge a vote.
+- **The audit trail keeps the whole decision:** `propose`, each
+  `approve` / `reject` with who cast it, `execute` with the approvers,
+  then the keystrokes themselves as `{"kind":"input","who":"agent"}`.
+
+`-supervise` names whose keystrokes need approval (default `agent`).
+Approvers are matched by session name, so give people names when they
+join (`cotty join -name alice`), and share the join URL only with them.
 
 ### AI agent: an agent on a leash
 

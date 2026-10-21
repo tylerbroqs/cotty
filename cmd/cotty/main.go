@@ -33,6 +33,8 @@ Usage:
   cotty arena [flags]          AI models compete at paper trading Stock Tokens
   cotty agent [flags] <url>    Bring an AI agent into a session as a guest
   cotty ask <question>         Ask the session's agent (run inside the session)
+  cotty approve N | reject N   Vote on an agent's held command (multisig)
+  cotty pending                List agent commands waiting for votes
   cotty version                Print version
 
 Host flags:
@@ -51,6 +53,13 @@ Host flags:
                   with 'cotty replay' or asciinema)
   -audit string   Write a JSON-lines audit trail: applied keystrokes by
                   participant, joins/leaves, permission changes, kicks
+  -quorum int     Multisig for agents: hold every keystroke from the
+                  -supervise participants as a proposal that runs only
+                  once this many -approvers vote for it (default 0: off)
+  -approvers string  Comma-separated names who may vote, e.g.
+                  host,alice,bob ("host" is you)
+  -supervise string  Participants whose keystrokes need approval
+                  (default "agent")
 
 Replay flags:
   -speed float      Playback speed multiplier (default 1)
@@ -140,6 +149,9 @@ func main() {
 		plain := fs.Bool("plain", false, "disable end-to-end encryption for relayed sessions")
 		recordPath := fs.String("record", "", "record the session as an asciicast v2 file")
 		auditPath := fs.String("audit", "", "write a JSON-lines audit trail")
+		quorum := fs.Int("quorum", 0, "approvals needed to run a supervised participant's keystrokes (0: off)")
+		approvers := fs.String("approvers", "host", "names who may approve")
+		supervise := fs.String("supervise", "agent", "participants whose keystrokes need approval")
 		fs.Parse(os.Args[2:])
 		err := host.Run(host.Options{
 			Addr:       *addr,
@@ -150,6 +162,9 @@ func main() {
 			Plain:      *plain,
 			Record:     *recordPath,
 			Audit:      *auditPath,
+			Quorum:     *quorum,
+			Approvers:  splitNames(*approvers),
+			Supervise:  splitNames(*supervise),
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
@@ -300,6 +315,26 @@ func main() {
 			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
 			os.Exit(1)
 		}
+	case "approve", "reject", "pending":
+		fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
+		code := fs.String("code", "", "session code to target")
+		fs.Parse(os.Args[2:])
+		if (os.Args[1] == "pending") != (fs.NArg() == 0) || fs.NArg() > 1 {
+			fmt.Fprintln(os.Stderr, "usage: cotty approve N | cotty reject N | cotty pending")
+			os.Exit(2)
+		}
+		path, err := ctl.Discover(*code)
+		if err == nil {
+			var text string
+			text, err = ctl.Call(path, os.Args[1], fs.Arg(0))
+			if err == nil {
+				fmt.Println(text)
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cotty: %v\n", err)
+			os.Exit(1)
+		}
 	case "ask":
 		fs := flag.NewFlagSet("ask", flag.ExitOnError)
 		code := fs.String("code", "", "session code to target")
@@ -330,4 +365,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "cotty: unknown command %q\n\n%s", os.Args[1], usage)
 		os.Exit(2)
 	}
+}
+
+// splitNames parses a comma-separated list of participant names.
+func splitNames(s string) []string {
+	var out []string
+	for _, n := range strings.Split(s, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
 }

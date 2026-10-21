@@ -82,6 +82,8 @@
     let hostSized = false;
     window.addEventListener('resize', () => { if (!hostSized) fit.fit(); });
 
+    // Our session name, from the host's welcome; votes carry it.
+    let me = name || '';
     let cryptoKey = null;
     if (keyStr) {
       try {
@@ -142,6 +144,8 @@
           let mode = msg.writable ? 'read-write' : 'view-only';
           if (msg.enc) mode += ', end-to-end encrypted';
           setStatus(msg.text + ' (' + mode + ')');
+          const i = (msg.text || '').lastIndexOf('you are ');
+          if (i >= 0) me = msg.text.slice(i + 8).trim();
           break;
         }
         case 'output': {
@@ -172,6 +176,15 @@
         case 'activity':
           if (msg.name) showActivity(msg.name);
           break;
+        case 'proposal': {
+          // An agent's command held for multisig approval.
+          let data = b64Decode(msg.data || '');
+          if (cryptoKey) {
+            try { data = await open(data); } catch { return; }
+          }
+          showProposal(JSON.parse(new TextDecoder().decode(data)));
+          break;
+        }
         case 'say': {
           // An agent's remarks; its answers to `cotty ask` show up in the
           // terminal itself.
@@ -189,8 +202,63 @@
       }
     }
 
-    // Keystrokes: sealed (in order) when the session is encrypted.
+    // Keystrokes and votes: sealed (in order) when the session is
+    // encrypted.
     let sendChain = Promise.resolve();
+    function sendSealed(type, bytes) {
+      sendChain = sendChain.then(async () => {
+        let data = bytes;
+        if (cryptoKey) data = await seal(data);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: type, data: b64Encode(data) }));
+        }
+      }).catch(() => {});
+    }
+
+    // Multisig: one card per pending proposal, with vote buttons for
+    // approvers; cards go away once a proposal is settled.
+    const votesEl = document.getElementById('votes');
+    const cards = new Map();
+    function showProposal(p) {
+      let card = cards.get(p.id);
+      if (p.state !== 'pending') {
+        if (card) { card.remove(); cards.delete(p.id); }
+        return;
+      }
+      if (!card) {
+        card = document.createElement('div');
+        card.className = 'proposal';
+        votesEl.appendChild(card);
+        cards.set(p.id, card);
+      }
+      card.textContent = '';
+      const head = document.createElement('div');
+      head.textContent = '#' + p.id + ' ' + p.who + ' wants to run:';
+      const cmd = document.createElement('code');
+      cmd.className = 'cmd';
+      cmd.textContent = p.command;
+      const tally = document.createElement('div');
+      tally.className = 'tally';
+      tally.textContent = (p.approved || []).length + ' of ' + p.quorum + ' approvals from ' + p.approvers.join(', ') +
+        ((p.approved || []).length ? ' · approved by ' + p.approved.join(', ') : '');
+      card.append(head, cmd, tally);
+      const voted = (p.approved || []).includes(me) || (p.rejected || []).includes(me);
+      if (p.approvers.includes(me) && !voted) {
+        const row = document.createElement('div');
+        row.style.marginTop = '8px';
+        for (const [op, label, cls] of [['approve', 'Approve', 'yes'], ['reject', 'Reject', 'no']]) {
+          const b = document.createElement('button');
+          b.className = cls;
+          b.textContent = label;
+          b.onclick = () => {
+            row.remove();
+            sendSealed('vote', new TextEncoder().encode(JSON.stringify({ id: p.id, op: op, voter: me })));
+          };
+          row.appendChild(b);
+        }
+        card.appendChild(row);
+      }
+    }
     term.onData((s) => {
       sendChain = sendChain.then(async () => {
         let data = new TextEncoder().encode(s);

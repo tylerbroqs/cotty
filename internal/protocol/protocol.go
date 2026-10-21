@@ -97,6 +97,15 @@ const (
 	// Name); the host then fans it out to every guest with Name set.
 	// Data holds the text, sealed in end-to-end encrypted sessions.
 	TypeSay MsgType = "say"
+	// TypeProposal tells guests about keystrokes a supervised
+	// participant (an agent) proposed, and their votes so far: Data is a
+	// Proposal as JSON, sealed like output in encrypted sessions.
+	TypeProposal MsgType = "proposal"
+	// TypeVote carries a guest's vote on a proposal: Data is a Vote as
+	// JSON, sealed in encrypted sessions so a relay can neither read nor
+	// forge it. The relay attributes it in Name, and the host checks that
+	// against the voter sealed inside.
+	TypeVote MsgType = "vote"
 )
 
 // Message is a single frame. Data is base64-encoded by encoding/json.
@@ -122,4 +131,23 @@ type Message struct {
 	// Encrypted marks a session as end-to-end encrypted, on TypeRegister
 	// (host to relay) and TypeHello (to each guest) frames.
 	Encrypted bool `json:"enc,omitempty"`
+}
+
+// Proposal is the state of keystrokes held for multisig approval.
+type Proposal struct {
+	ID        int      `json:"id"`
+	Who       string   `json:"who"`
+	Command   string   `json:"command"` // the keystrokes, control keys shown as ⏎ and ^X
+	Quorum    int      `json:"quorum"`
+	Approvers []string `json:"approvers"`
+	Approved  []string `json:"approved"`
+	Rejected  []string `json:"rejected"`
+	State     string   `json:"state"` // pending, executed, rejected, expired
+}
+
+// Vote is one approver's vote on a Proposal.
+type Vote struct {
+	ID    int    `json:"id"`
+	Op    string `json:"op"` // approve or reject
+	Voter string `json:"voter"`
 }

@@ -5,10 +5,13 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
+	"sync/atomic"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -92,31 +95,64 @@ func Run(rawURL, name string) error {
 		defer term.Restore(stdinFd, oldState)
 	}
 
-	fmt.Fprintf(os.Stderr, "cotty: joined; press Ctrl-] to leave\r\n")
+	fmt.Fprintf(os.Stderr, "cotty: joined; press Ctrl-] to leave, Ctrl-\\ to vote on an agent's command\r\n")
 
-	// Keystrokes go to the host. The host decides whether to apply them.
+	// me is our session name, from the host's welcome; votes carry it.
+	var me atomic.Value
+	me.Store(name)
+	send := func(typ protocol.MsgType, data []byte) error {
+		if cipher != nil {
+			data = cipher.Seal(data)
+		}
+		return wsjson.Write(ctx, ws, protocol.Message{Type: typ, Data: data})
+	}
+
+	// Keystrokes go to the host, which decides whether to apply them;
+	// Ctrl-\ diverts them into a vote prompt instead.
 	go func() {
 		defer cancel()
+		var vote *voteLine
 		buf := make([]byte, 4096)
 		for {
 			n, err := os.Stdin.Read(buf)
-			if n > 0 {
-				for _, b := range buf[:n] {
-					if b == escapeKey {
+			var keys []byte
+		bytes:
+			for _, b := range buf[:n] {
+				switch {
+				case b == escapeKey:
+					return
+				case vote != nil && b == 0x1b:
+					// Esc cancels; drop the rest of the read so an arrow
+					// key's escape sequence doesn't leak into the shell.
+					vote.key(b)
+					vote = nil
+					break bytes
+				case vote != nil:
+					text, done := vote.key(b)
+					if !done {
+						continue
+					}
+					vote = nil
+					if strings.TrimSpace(text) == "" {
+						continue
+					}
+					op, id, ok := parseVote(text)
+					if !ok {
+						fmt.Fprint(os.Stderr, "cotty: type approve N or reject N\r\n")
+						continue
+					}
+					v, _ := json.Marshal(protocol.Vote{ID: id, Op: op, Voter: me.Load().(string)})
+					if send(protocol.TypeVote, v) != nil {
 						return
 					}
+				case b == voteKey:
+					vote = newVoteLine()
+				default:
+					keys = append(keys, b)
 				}
-				data := make([]byte, n)
-				copy(data, buf[:n])
-				if cipher != nil {
-					data = cipher.Seal(data)
-				}
-				if werr := wsjson.Write(ctx, ws, protocol.Message{
-					Type: protocol.TypeInput,
-					Data: data,
-				}); werr != nil {
-					return
-				}
+			}
+			if len(keys) > 0 && send(protocol.TypeInput, keys) != nil {
+				return
 			}
 			if err != nil {
 				return
@@ -153,7 +189,11 @@ func Run(rawURL, name string) error {
 			if msg.Encrypted {
 				mode += ", end-to-end encrypted"
 			}
-			fmt.Fprintf(os.Stderr, "cotty: %s (%s)\r\n", protocol.SanitizeText(msg.Text), mode)
+			text := protocol.SanitizeText(msg.Text)
+			if i := strings.LastIndex(text, "you are "); i >= 0 {
+				me.Store(strings.TrimSpace(text[i+len("you are "):]))
+			}
+			fmt.Fprintf(os.Stderr, "cotty: %s (%s)\r\n", text, mode)
 		case protocol.TypeInfo:
 			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", protocol.SanitizeText(msg.Text))
 		case protocol.TypeSay:

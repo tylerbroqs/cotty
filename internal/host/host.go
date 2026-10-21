@@ -5,12 +5,14 @@ package host
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -48,6 +50,12 @@ type Options struct {
 	// path: applied keystrokes by participant, joins/leaves, permission
 	// changes, kicks.
 	Audit string
+	// Quorum, when set, holds keystrokes from the Supervise participants
+	// (agents) as proposals until Quorum of the Approvers vote for them:
+	// M-of-N multisig for an agent's commands.
+	Quorum    int
+	Approvers []string
+	Supervise []string
 }
 
 // transport delivers frames from the host to its guests. Guest input
@@ -114,7 +122,21 @@ func Run(opts Options) error {
 	// permission is per guest, so gating lives with the guest registry:
 	// in-process for local sessions, on the relay (re-checked coarsely by
 	// relayTransport) for relayed ones.
-	writeInput := func(who string, data []byte) {
+	// The recorder starts before guests can join, so everything they
+	// cause (multisig notices included) is recorded.
+	var rec *record.Recorder
+	if opts.Record != "" {
+		cols, rows := 80, 24
+		if ws, serr := pty.GetsizeFull(ptmx); serr == nil && ws.Cols > 0 {
+			cols, rows = int(ws.Cols), int(ws.Rows)
+		}
+		if rec, err = record.New(opts.Record, cols, rows, shell); err != nil {
+			return err
+		}
+		defer rec.Close()
+	}
+
+	applyInput := func(who string, data []byte) {
 		aud.Input(who, data)
 		ptmx.Write(data)
 	}
@@ -124,7 +146,52 @@ func Run(opts Options) error {
 		joinURL string
 		pending answers
 		limiter sayLimiter
+		ms      *multisig
 	)
+	if opts.Quorum > 0 {
+		if ms, err = newMultisig(opts.Quorum, opts.Approvers, opts.Supervise); err != nil {
+			return err
+		}
+		ms.execute = applyInput
+		ms.event = aud.Event
+		// Proposals and votes show up in everyone's terminal, inside the
+		// session's output stream (so they're sealed end to end and land
+		// in recordings), and as structured frames for the web client.
+		ms.announce = func(p protocol.Proposal, text string) {
+			if tr == nil {
+				return
+			}
+			line := []byte("\r\n\x1b[1;33m[multisig]\x1b[0m " + text + "\r\n")
+			os.Stdout.Write(line)
+			rec.Output(line)
+			tr.broadcast(protocol.Message{Type: protocol.TypeOutput, Data: line})
+			if js, err := json.Marshal(p); err == nil {
+				tr.broadcast(protocol.Message{Type: protocol.TypeProposal, Data: js})
+			}
+		}
+	}
+	// writeInput applies keystrokes from guests who may type, holding a
+	// supervised participant's for multisig approval first.
+	writeInput := func(who string, data []byte) {
+		if ms != nil && ms.supervises(who) {
+			ms.hold(who, data)
+			return
+		}
+		applyInput(who, data)
+	}
+	// onVote takes a guest's vote on a proposal. The voter sealed in the
+	// vote must match the session name the vote arrived under.
+	onVote := func(who string, data []byte) {
+		var v protocol.Vote
+		if ms == nil || json.Unmarshal(data, &v) != nil || v.Voter != who {
+			return
+		}
+		if _, err := ms.vote(who, v.Op, strconv.Itoa(v.ID)); err != nil {
+			text := protocol.SanitizeText("vote from " + who + " not counted: " + err.Error())
+			fmt.Fprintf(os.Stderr, "\r\ncotty: %s\r\n", text)
+			tr.broadcast(protocol.Message{Type: protocol.TypeInfo, Text: text})
+		}
+	}
 	// onSay takes a guest's chat text (an agent's answer, usually): it goes
 	// to the oldest pending `cotty ask`, which prints it inside the shell
 	// for everyone; otherwise it is shown as a notice on every terminal.
@@ -144,9 +211,9 @@ func Run(opts Options) error {
 		tr.broadcast(protocol.Message{Type: protocol.TypeSay, Name: who, Data: []byte(text)})
 	}
 	if opts.Relay != "" {
-		tr, joinURL, err = dialRelay(opts.Relay, code, opts.AllowWrite, !opts.Plain, writeInput, onSay, aud)
+		tr, joinURL, err = dialRelay(opts.Relay, code, opts.AllowWrite, !opts.Plain, writeInput, onSay, onVote, aud)
 	} else {
-		tr, joinURL, err = listenLocal(opts.Addr, code, opts.AllowWrite, writeInput, onSay, aud)
+		tr, joinURL, err = listenLocal(opts.Addr, code, opts.AllowWrite, writeInput, onSay, onVote, aud)
 	}
 	if err != nil {
 		return err
@@ -154,8 +221,17 @@ func Run(opts Options) error {
 	defer tr.close()
 
 	ctlSrv, err := ctl.Serve(ctl.SocketPath(code), func(op, name, text string) (string, error) {
-		if op == "ask" {
+		switch op {
+		case "ask":
 			return ask(tr, &pending, aud, text)
+		case "approve", "reject", "pending":
+			if ms == nil {
+				return "", errors.New("multisig is off; host with -quorum N -approvers NAMES to turn it on")
+			}
+			if op == "pending" {
+				return ms.pending(), nil
+			}
+			return ms.vote("host", op, name)
 		}
 		text, cerr := tr.control(op, name)
 		if cerr == nil && op != "list" {
@@ -167,18 +243,6 @@ func Run(opts Options) error {
 		fmt.Fprintf(os.Stderr, "cotty: warning: guest management unavailable: %v\n", err)
 	} else {
 		defer ctlSrv.Close()
-	}
-
-	var rec *record.Recorder
-	if opts.Record != "" {
-		cols, rows := 80, 24
-		if ws, serr := pty.GetsizeFull(ptmx); serr == nil && ws.Cols > 0 {
-			cols, rows = int(ws.Cols), int(ws.Rows)
-		}
-		if rec, err = record.New(opts.Record, cols, rows, shell); err != nil {
-			return err
-		}
-		defer rec.Close()
 	}
 
 	mode := "view-only"
